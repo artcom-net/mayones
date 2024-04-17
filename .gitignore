@@ -1,0 +1,14 @@
+.vscode/
+
+build/
+dist/
+lib/
+rom/
+out/
+
+*.log
+
+emulator*
+frame*
+ppu*
+ram*
