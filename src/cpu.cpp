@@ -290,7 +290,6 @@ const CPU::Instruction CPU::INSTRUCTIONS[0xFF] = {
 
 
 CPU::CPU(CPUMemoryBus& bus) :
-    nmi(false),
     a(0),
     x(0),
     y(0),

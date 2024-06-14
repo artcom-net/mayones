@@ -9,8 +9,6 @@
 class CPU
 {
 public:
-    bool nmi;
-
     CPU(CPUMemoryBus& bus);
 
     CPU(const CPU& cpu) = delete;
