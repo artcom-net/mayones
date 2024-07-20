@@ -1,8 +1,16 @@
-/.idea
-/.vscode
+.idea/
+.vs/
+.vscode/
 
-/rom/*
-/target
+build/
+dist/
+lib/
+rom/
+out/
 
-!/rom/nestest.nes
-!/rom/nestest.trace
+*.log
+
+emulator*
+frame*
+ppu*
+ram*
