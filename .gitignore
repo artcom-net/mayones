@@ -9,8 +9,4 @@ rom/
 out/
 
 *.log
-
-emulator*
-frame*
-ppu*
-ram*
+*.pdf
