@@ -1,0 +1,10 @@
+.idea/
+.vs/
+.vscode/
+.zed/
+
+docs/
+rom/
+out/
+
+CMakeUserPresets.json
