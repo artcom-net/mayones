@@ -1,9 +1,6 @@
-# NES console emulator
-
-# MayoNES 🚀
+# MayoNES
 
 NES (Famicom) emulator.
-
 
 ## License
 
