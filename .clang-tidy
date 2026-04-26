@@ -1,5 +1,4 @@
 UseColor: true
-HeaderFilterRegex: "src.*"
 
 Checks: >
     bugprone-*,

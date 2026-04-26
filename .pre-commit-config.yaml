@@ -17,9 +17,22 @@ repos:
       - id: check-merge-conflict
       - id: mixed-line-ending
 
-  - repo: https://github.com/pocc/pre-commit-hooks
-    rev: 30640c601d3feac2c4d249ebb7b0b8916510d279
+  - repo: local
     hooks:
       - id: clang-format
+        name: clang-format
+        entry: clang-format
+        args: ["-style=file", "-i"]
+        language: system
+        types_or: [c++]
+        files: ^(src|tests)/
+
+  - repo: local
+    hooks:
       - id: clang-tidy
-        args: ["--config-file=.clang-tidy", "-p=.", "--quiet"]
+        name: clang-tidy
+        entry: clang-tidy
+        args: ["-p=."]
+        language: system
+        types_or: [c++]
+        files: ^(src|tests)/
