@@ -22,7 +22,10 @@ jobs:
         uses: lukka/run-vcpkg@v11
 
       - name: Setup CMake
-        uses: lukka/get-cmake@v4.2
+        uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: "^4.2.3"
+          ninjaVersion: "^1.13.2"
 
       - name: Configure build
         uses: lukka/run-cmake@v10
