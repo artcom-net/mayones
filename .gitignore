@@ -1,4 +1,6 @@
+.cache/
 .idea/
+.venv/
 .vs/
 .vscode/
 .zed/
@@ -8,3 +10,4 @@ rom/
 out/
 
 CMakeUserPresets.json
+compile_commands.json
