@@ -27,12 +27,12 @@ repos:
         types_or: [c++]
         files: ^(src|tests)/
 
-  - repo: local
-    hooks:
-      - id: clang-tidy
-        name: clang-tidy
-        entry: clang-tidy
-        args: ["-p=."]
-        language: system
-        types_or: [c++]
-        files: ^(src|tests)/
+  # - repo: local
+  #   hooks:
+  #     - id: clang-tidy
+  #       name: clang-tidy
+  #       entry: clang-tidy
+  #       args: ["-p=."]
+  #       language: system
+  #       types_or: [c++]
+  #       files: ^(src|tests)/

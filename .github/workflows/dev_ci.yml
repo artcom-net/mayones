@@ -31,6 +31,7 @@ jobs:
         uses: lukka/run-cmake@v10
         with:
           configurePreset: 'msvc-debug'
+          configurePresetAdditionalArgs: "['-DBUILD_TESTING=ON']"
 
       - name: Pre-commit
         uses: pre-commit/action@v3.0.1
