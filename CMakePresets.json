@@ -67,7 +67,8 @@
   "buildPresets": [
     {
       "name": "msvc-debug",
-      "configurePreset": "msvc-debug"
+      "configurePreset": "msvc-debug",
+      "verbose": true
     },
     {
       "name": "msvc-release",
