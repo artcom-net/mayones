@@ -1,0 +1,25 @@
+fail_fast: false
+exclude: ^(\.cache|\.venv|\.vs|\.zed|docs|out|rom)/
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+        files: \.(yaml|yml|clang-format|clang-tidy|clangd)$
+      - id: check-json
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-illegal-windows-names
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+
+  - repo: https://github.com/pocc/pre-commit-hooks
+    rev: 30640c601d3feac2c4d249ebb7b0b8916510d279
+    hooks:
+      - id: clang-format
+      - id: clang-tidy
+        args: ["--config-file=.clang-tidy", "-p=.", "--quiet"]

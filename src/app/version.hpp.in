@@ -1,0 +1,9 @@
+#pragma once
+
+#include <string_view>
+
+namespace mayones {
+
+inline constexpr std::string_view VERSION{ "@MAYONES_GIT_VERSION@" };
+
+} // namespace mayones

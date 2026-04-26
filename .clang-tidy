@@ -1,0 +1,16 @@
+UseColor: true
+HeaderFilterRegex: "src.*"
+
+Checks: >
+    bugprone-*,
+    cppcoreguidelines-*,
+    modernize-*,
+    performance-*,
+    misc-*,
+    readability-*,
+    clang-analyzer-*,
+    clang-diagnostic-*,
+    portability-*,
+
+    -portability-avoid-pragma-once,
+    -modernize-use-trailing-return-type
