@@ -1,0 +1,71 @@
+name: dev-pipeline
+run-name: ${{ github.actor }} is cooking MayoNES
+permissions:
+  packages: write
+on:
+  push:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "CMakeLists.txt"
+      - "vcpkg.json"
+      - ".pre-commit-config.yaml"
+
+env:
+  USERNAME: artcom-net
+  VCPKG_EXE: ${{ github.workspace }}/vcpkg/vcpkg
+  FEED_URL: https://nuget.pkg.github.com/artcom-net/index.json
+  VCPKG_BINARY_SOURCES: "clear;nuget,https://nuget.pkg.github.com/artcom-net/index.json,readwrite"
+
+jobs:
+  dev-pipeline:
+    name: dev-pipeline
+    runs-on: windows-2025-vs2026
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup LLVM tools
+        run: pip install clang-tidy==22.1.0.1 clang-format==22.1.3
+
+      - name: clang-format
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files clang-format
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+
+      - name: Add NuGet sources
+        shell: pwsh
+        run: |
+          .$(${{ env.VCPKG_EXE }} fetch nuget) `
+            sources add `
+            -Source "${{ env.FEED_URL }}" `
+            -StorePasswordInClearText `
+            -Name GitHubPackages `
+            -UserName "${{ env.USERNAME }}" `
+            -Password "${{ secrets.GITHUB_TOKEN }}"
+          .$(${{ env.VCPKG_EXE }} fetch nuget) `
+            setapikey "${{ secrets.GITHUB_TOKEN }}" `
+            -Source "${{ env.FEED_URL }}"
+
+      - name: Setup CMake
+        uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: "^4.2.3"
+          ninjaVersion: "^1.13.2"
+
+      - name: Build
+        uses: lukka/run-cmake@v10
+        with:
+          configurePreset: "msvc-debug"
+          configurePresetAdditionalArgs: "['-DBUILD_TESTING=ON']"
+          buildPreset: "msvc-debug"
+          testPreset: "msvc-debug"
+
+      - name: clang-tidy
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files clang-tidy
