@@ -14,6 +14,7 @@ MayoNES::MayoNES(Config config) :
                  mayones::VERSION,
                  m_config.rom_path.generic_string(),
                  m_config.debug);
+    std::println("\n");
 }
 
 } // namespace mayones::app
