@@ -5,7 +5,8 @@ on: push
 
 jobs:
   common-pipeline:
-    name: Pre-commit checks
+
+    name: pre-commit checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

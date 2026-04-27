@@ -40,7 +40,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup Python deps
+      - name: Setup Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -56,7 +56,7 @@ jobs:
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
 
-      - name: Add NuGet sources
+      - name: Setup NuGet
         shell: pwsh
         run: |
           .$(${{ env.VCPKG_EXE }} fetch nuget) `
@@ -76,7 +76,7 @@ jobs:
           cmakeVersion: "^4.2.3"
           ninjaVersion: "^1.13.2"
 
-      - name: Build
+      - name: Build & Test
         uses: lukka/run-cmake@v10
         env:
           CMAKE_PRESET: "${{ inputs.cmake_preset || env.CMAKE_PRESET }}"
