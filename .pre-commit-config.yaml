@@ -32,7 +32,7 @@ repos:
       - id: clang-tidy
         name: clang-tidy
         entry: clang-tidy
-        args: ["-p=./out/build/msvc-debug"]
+        args: ["-p=.", "-extra-arg=/std:c++latest"]
         language: system
         types_or: [c++]
         files: ^(src|tests)/
