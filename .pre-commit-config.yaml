@@ -32,7 +32,7 @@ repos:
       - id: clang-tidy
         name: clang-tidy
         entry: clang-tidy
-        args: ["-p=.", "-extra-arg=/std:c++latest"]
+        args: ["-p=."]
         language: system
         types_or: [c++]
         files: ^(src|tests)/

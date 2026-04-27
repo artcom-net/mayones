@@ -12,8 +12,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      # - name: Setup LLVM
-      #   run: choco install llvm --version 21.1.3
+      - name: Setup clang-tidy
+        run: pip install clang-tidy==22.1.0.1
 
       # - name: Setup Python
       #   uses: actions/setup-python@v3
