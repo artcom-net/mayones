@@ -1,5 +1,6 @@
 name: common-pipeline
 run-name: ${{ github.actor }} ran common checks
+
 on: push
 
 jobs:
