@@ -35,6 +35,8 @@ jobs:
 
       - name: Pre-commit
         uses: pre-commit/action@v3.0.1
+        env:
+          SKIP: clang-tidy
         with:
           extra_args: --all-files
 
@@ -42,6 +44,11 @@ jobs:
         uses: lukka/run-cmake@v10
         with:
           buildPreset: 'msvc-debug'
+
+      - name: clang-tidy
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files clang-tidy
 
       - name: Test
         uses: lukka/run-cmake@v10
