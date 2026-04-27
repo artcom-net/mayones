@@ -1,0 +1,93 @@
+name: dev-pipeline
+run-name: ${{ github.actor }} is cooking MayoNES
+
+on:
+  workflow_dispatch:
+    inputs:
+      cmake_preset:
+        description: "CMake preset"
+        required: true
+        default: msvc-debug
+        type: choice
+        options:
+          - msvc-debug
+          - msvc-release
+
+  push:
+    paths:
+      - ".github/workflows/dev.yml"
+      - "src/**"
+      - "tests/**"
+      - ".pre-commit-config.yaml"
+      - "CMakeLists.txt"
+      - "CMakePresets.json"
+      - "vcpkg.json"
+
+jobs:
+  dev-pipeline:
+    permissions:
+      packages: write
+
+    env:
+      CMAKE_PRESET: msvc-debug
+      VCPKG_EXE: "${{ github.workspace }}/vcpkg/vcpkg"
+      NUGET_FEED_URL: "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
+      VCPKG_BINARY_SOURCES: "clear;nuget,https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json,readwrite"
+
+    name: dev-pipeline
+    runs-on: windows-2025-vs2026
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: "requirements-dev.txt"
+      - run: pip install -r requirements-dev.txt
+
+      - name: clang-format
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: clang-format --all-files
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+
+      - name: Setup NuGet
+        shell: pwsh
+        run: |
+          .$(${{ env.VCPKG_EXE }} fetch nuget) `
+            sources add `
+            -Source "${{ env.NUGET_FEED_URL }}" `
+            -StorePasswordInClearText `
+            -Name GitHubPackages `
+            -UserName "${{ github.repository_owner }}" `
+            -Password "${{ secrets.GITHUB_TOKEN }}"
+          .$(${{ env.VCPKG_EXE }} fetch nuget) `
+            setapikey "${{ secrets.GITHUB_TOKEN }}" `
+            -Source "${{ env.NUGET_FEED_URL }}"
+
+      - name: Setup CMake
+        uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: "^4.2.3"
+          ninjaVersion: "^1.13.2"
+
+      - name: Build & Test
+        uses: lukka/run-cmake@v10
+        env:
+          CMAKE_PRESET: "${{ inputs.cmake_preset || env.CMAKE_PRESET }}"
+        with:
+          configurePreset: "${{ env.CMAKE_PRESET }}"
+          configurePresetAdditionalArgs: "['-DBUILD_TESTING=ON']"
+          buildPreset: "${{ env.CMAKE_PRESET }}"
+          testPreset: "${{ env.CMAKE_PRESET }}"
+
+      - name: clang-tidy
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: clang-tidy --all-files

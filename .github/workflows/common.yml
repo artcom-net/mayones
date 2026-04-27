@@ -1,0 +1,23 @@
+name: common-pipeline
+run-name: ${{ github.actor }} ran common checks
+
+on: push
+
+jobs:
+  common-pipeline:
+
+    name: pre-commit checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Pre-commit
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: pre-commit/action@v3.0.1
+        env:
+          SKIP: clang-format,clang-tidy
+        with:
+          extra_args: --all-files
