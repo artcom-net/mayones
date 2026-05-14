@@ -1,7 +1,6 @@
 #include <array>
 #include <format>
 #include <ostream>
-#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -24,9 +23,7 @@ struct ReadConfigParams {
 [[maybe_unused]] void PrintTo(const ReadConfigParams& params, std::ostream* stream)
 {
     *stream << std::format(" cli_args={}, has_value={}, expected={{ rom_path={}, debug={} }}",
-                           params.cli_args |
-                             std::views::join_with(" "sv) | // NOLINT(misc-include-cleaner)
-                             std::ranges::to<std::string>(),
+                           params.cli_args,
                            params.has_value,
                            params.expected_config.rom_path.string(),
                            params.expected_config.debug);

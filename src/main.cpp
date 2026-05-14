@@ -24,9 +24,9 @@ int run(int argc, char* argv[])
         return 1;
     }
 
-    const mayones::app::MayoNES app{ std::move(read_config_result).value() };
+    mayones::app::MayoNes app{ std::move(read_config_result).value() };
 
-    return 0;
+    return app.run();
 }
 
 } // namespace

@@ -46,6 +46,7 @@ endif()
 
 set(MAYONES_EXE "${PROJECT_NAME}")
 set(MAYONES_APP "${PROJECT_NAME}_app")
+set(MAYONES_CORE "${PROJECT_NAME}_core")
 set(MAYONES_FLAGS "${PROJECT_NAME}_flags")
 
 add_library(${MAYONES_FLAGS} INTERFACE)
@@ -76,6 +77,7 @@ function(mayones_setup_target target)
     endif()
 endfunction()
 
+add_subdirectory(src/core)
 add_subdirectory(src/app)
 add_subdirectory(src)
 

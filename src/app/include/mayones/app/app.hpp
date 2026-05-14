@@ -1,14 +1,18 @@
 #pragma once
 
 #include "config.hpp"
+#include "mayones/core/core.hpp"
 
 namespace mayones::app {
 
-class MayoNES {
+class MayoNes {
 public:
-    explicit MayoNES(Config config);
+    explicit MayoNes(Config config);
+
+    int run();
 
 private:
+    core::NesCore m_nes_core;
     Config m_config;
 };
 
