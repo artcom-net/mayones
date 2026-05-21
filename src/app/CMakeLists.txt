@@ -14,5 +14,5 @@ target_include_directories(${MAYONES_APP}
     PRIVATE
         ${PROJECT_BINARY_DIR}
 )
-target_link_libraries(${MAYONES_APP} PUBLIC ${MAYONES_FLAGS} ${MAYONES_CORE})
+target_link_libraries(${MAYONES_APP} PUBLIC ${MAYONES_FLAGS} ${MAYONES_CORE} ${MAYONES_IO})
 mayones_setup_target(${MAYONES_APP})

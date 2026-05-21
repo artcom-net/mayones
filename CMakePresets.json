@@ -81,7 +81,7 @@
       "environment": {
         "MAYONES_TEST_CORE_DATA": "${sourceDir}/tests/core/data",
         "MAYONES_NESTEST_ROM": "$env{MAYONES_TEST_CORE_DATA}/nestest.nes",
-        "MAYONES_NESTEST_TRACE": "$env{MAYONES_TEST_CORE_DATA}/nestest_official.txt"
+        "MAYONES_NESTEST_TRACE": "$env{MAYONES_TEST_CORE_DATA}/nestest.txt"
       },
       "output": {
         "outputOnFailure": true

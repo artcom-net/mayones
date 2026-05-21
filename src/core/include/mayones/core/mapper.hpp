@@ -4,52 +4,35 @@
 #include <expected>
 #include <span>
 #include <string>
-#include <string_view>
 #include <variant>
-#include <vector>
+
+#include "mayones/core/rom.hpp"
 
 namespace mayones::core::rom {
 
-class DummyMapper;
-class Mapper0;
-
-using Mapper = std::variant<DummyMapper, Mapper0>;
-
-struct CreateMapperConfig {
-    std::uint8_t id;
-    std::uint8_t prg_banks;
-    std::vector<std::uint8_t> rom;
-};
-
-std::expected<Mapper, std::string> create_mapper(CreateMapperConfig mapper_config);
-
 class DummyMapper {
 public:
+    static std::expected<DummyMapper, std::string> create(const RomData& rom_data) noexcept;
     [[nodiscard]] std::uint8_t read_prg(std::uint16_t address) const;
-    [[nodiscard]] std::uint8_t read_chr(std::uint16_t address) const;
-
-    static constexpr std::string_view NAME{ "DummyMapper" };
-    static constexpr std::uint8_t ID{ 0xFF };
+    void write_prg(std::uint16_t address, std::uint8_t data);
 };
 
-class Mapper0 {
+class NromMapper {
 public:
-    static std::expected<Mapper0, std::string> create(std::uint8_t prg_banks,
-                                                      std::vector<std::uint8_t> rom);
-
+    static std::expected<NromMapper, std::string> create(const RomData& rom_data) noexcept;
     [[nodiscard]] std::uint8_t read_prg(std::uint16_t address) const;
-    [[nodiscard]] std::uint8_t read_chr(std::uint16_t address) const;
-
-    static constexpr std::string_view NAME{ "NROM" };
-    static constexpr std::uint8_t ID{ 0x00 };
+    void write_prg(std::uint16_t address, std::uint8_t data);
 
 private:
-    explicit Mapper0(std::uint8_t prg_banks, std::vector<std::uint8_t> rom);
+    std::span<const std::uint8_t> prg_rom_;
+    std::span<const std::uint8_t> chr_rom_;
+    std::uint16_t address_mask_;
 
-    std::vector<std::uint8_t> m_rom;
-    std::span<std::uint8_t> m_prg_rom;
-    std::span<std::uint8_t> m_chr_rom;
-    std::uint16_t m_prg_address_mask;
+    explicit NromMapper(const RomData& rom_data);
 };
+
+using Mapper = std::variant<DummyMapper, NromMapper>;
+
+std::expected<Mapper, std::string> create_mapper(const RomData& rom_data);
 
 } // namespace mayones::core::rom

@@ -12,8 +12,8 @@ public:
     int run();
 
 private:
-    core::NesCore m_nes_core;
-    Config m_config;
+    core::NesCore nes_core_;
+    Config config_;
 };
 
 } // namespace mayones::app

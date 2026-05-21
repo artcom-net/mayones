@@ -4,21 +4,18 @@
 #include <cstddef> // std::size_t
 #include <cstdint> // std::uint*_t
 #include <expected>
+#include <ranges>
 #include <span>
 #include <string>
-#include <utility> // std::move, std::cmp_equal, std::unreachable
+#include <utility> // std::move, std::unreachable
 #include <vector>
 
-#include "mayones/core/cartridge.hpp"
-#include "mayones/core/mapper.hpp"
 #include "mayones/core/rom.hpp"
 #include "mayones/core/rom_loader.hpp"
 
 namespace {
 
 using namespace mayones::core::rom;
-
-using ParseRomResult = std::expected<mayones::core::Cartridge, std::string>;
 
 struct RawHeader {
     std::array<std::uint8_t, HEADER_ID_SIZE> header_id;
@@ -58,6 +55,7 @@ struct Flags7 {
         MAPPER_HIGH_BITS = 0xF0
     };
 
+    RomFormat rom_format;
     ConsoleType console_type;
     std::uint8_t mapper_high_bits;
 };
@@ -72,7 +70,7 @@ struct Flags9 {
     std::uint8_t reserved_bits;
 };
 
-RomFormat identify_rom_format(std::span<const std::uint8_t> rom_data)
+std::expected<RomFormat, std::string> identify_rom_format(std::span<const std::uint8_t> rom_data)
 {
     constexpr std::size_t FLAGS7_INDEX{ 7 };
     constexpr std::uint8_t INES_FORMAT_BITS{ 0x00 };
@@ -81,7 +79,7 @@ RomFormat identify_rom_format(std::span<const std::uint8_t> rom_data)
 
     if (rom_data.size() <= FLAGS7_INDEX)
     {
-        return RomFormat::UNKNOWN;
+        return std::unexpected{ "ROM is too small to identify format" };
     }
 
     switch (rom_data[FLAGS7_INDEX] & Flags7::ROM_FORMAT_BITS)
@@ -91,40 +89,36 @@ RomFormat identify_rom_format(std::span<const std::uint8_t> rom_data)
         case ARCHAIC_INES_FORMAT_BITS:
             return RomFormat::ARCHAIC_INES;
         case NES20_FORMAT_BITS:
-            return RomFormat::NES20;
+            return RomFormat::INES20;
         default:
-            return RomFormat::UNKNOWN;
+            return std::unexpected{ "Unknown ROM format" };
     }
 }
 
-inline bool is_set_flag(std::uint8_t value, std::uint8_t flags) noexcept
+inline bool is_set_flags(std::uint8_t value, std::uint8_t flags) noexcept
 {
     return (value & flags) != 0;
 }
 
 Flags6 parse_flags6(std::uint8_t flags) noexcept
 {
-    Mirroring mirroring =
-      is_set_flag(flags, Flags6::MIRRORING) ? Mirroring::VERTICAL : Mirroring::HORIZONTAL;
-    bool has_alternate_nt_layout = is_set_flag(flags, Flags6::HAS_ALTERNATE_NT_LAYOUT);
-    bool has_battery = is_set_flag(flags, Flags6::HAS_BATTERY);
-    bool has_trainer = is_set_flag(flags, Flags6::HAS_TRAINER);
-    std::uint8_t mapper_low_bits = (flags & Flags6::MAPPER_LOW_BITS) >> 4;
-    return Flags6{ .mirroring = mirroring,
-                   .has_alternate_nt_layout = has_alternate_nt_layout,
-                   .has_battery = has_battery,
-                   .has_trainer = has_trainer,
-                   .mapper_low_bits = mapper_low_bits };
+    return Flags6{ .mirroring = is_set_flags(flags, Flags6::MIRRORING) ? Mirroring::VERTICAL
+                                                                       : Mirroring::HORIZONTAL,
+                   .has_alternate_nt_layout = is_set_flags(flags, Flags6::HAS_ALTERNATE_NT_LAYOUT),
+                   .has_battery = is_set_flags(flags, Flags6::HAS_BATTERY),
+                   .has_trainer = is_set_flags(flags, Flags6::HAS_TRAINER),
+                   .mapper_low_bits =
+                     static_cast<std::uint8_t>((flags & Flags6::MAPPER_LOW_BITS) >> 4) };
 }
 
 Flags7 parse_flags7(std::uint8_t flags) noexcept
 {
-    ConsoleType console_type{ ConsoleType::UNKNOWN };
-    if (is_set_flag(flags, Flags7::VS_UNISYSTEM))
+    ConsoleType console_type{};
+    if (is_set_flags(flags, Flags7::VS_UNISYSTEM))
     {
         console_type = ConsoleType::VS_UNISYSTEM;
     }
-    else if (is_set_flag(flags, Flags7::PLAYCHOICE_10))
+    else if (is_set_flags(flags, Flags7::PLAYCHOICE_10))
     {
         console_type = ConsoleType::PLAYCHOICE_10;
     }
@@ -132,41 +126,59 @@ Flags7 parse_flags7(std::uint8_t flags) noexcept
     {
         console_type = ConsoleType::NES;
     }
-    std::uint8_t mapper_high_bits = flags & Flags7::MAPPER_HIGH_BITS;
-    return Flags7{ .console_type = console_type, .mapper_high_bits = mapper_high_bits };
+    return Flags7{ .rom_format = RomFormat::INES,
+                   .console_type = console_type,
+                   .mapper_high_bits =
+                     static_cast<std::uint8_t>(flags & Flags7::MAPPER_HIGH_BITS) };
 }
 
 Flags9 parse_flags9(std::uint8_t flags)
 {
-    TVSystem tv_system = is_set_flag(flags, Flags9::TV_SYSTEM) ? TVSystem::PAL : TVSystem::NTSC;
-    std::uint8_t reserved_bits = flags & Flags9::RESERVED_BITS;
-    return Flags9{ .tv_system = tv_system, .reserved_bits = reserved_bits };
+    return Flags9{ .tv_system =
+                     is_set_flags(flags, Flags9::TV_SYSTEM) ? TVSystem::PAL : TVSystem::NTSC,
+                   .reserved_bits = static_cast<std::uint8_t>(flags & Flags9::RESERVED_BITS) };
 }
 
 std::expected<RomInfo, std::string> parse_header(std::span<std::uint8_t> rom_data)
 {
     if (rom_data.size() < HEADER_SIZE)
     {
-        return std::unexpected{ "Cannot parse header: malformed rom" };
+        return std::unexpected{ "ROM header is too small" };
     }
 
     std::array<std::uint8_t, HEADER_SIZE> header_bytes{};
     std::ranges::copy(rom_data.first<HEADER_SIZE>(), header_bytes.begin());
     auto raw_header = std::bit_cast<RawHeader>(header_bytes);
 
+    if (raw_header.prg_rom_banks == 0)
+    {
+        return std::unexpected{ "Invalid PRG ROM bank count: 0 (at least 1 required)" };
+    }
+    if (raw_header.chr_rom_banks == 0)
+    {
+        return std::unexpected{ "Invalid CHR ROM bank count: 0 (at least 1 required)" };
+    }
+    if (!std::ranges::all_of(raw_header.padding, [](std::uint8_t v) { return v == 0; }))
+    {
+        return std::unexpected{ "Header padding contains non-zero bytes" };
+    }
+
     Flags6 flags6 = parse_flags6(raw_header.flags6);
     Flags7 flags7 = parse_flags7(raw_header.flags7);
+
     Flags9 flags9 = parse_flags9(raw_header.flags9);
+    if (flags9.reserved_bits != 0)
+    {
+        return std::unexpected{ "Reserved bits in flags9 are non-zero" };
+    }
     // Skip Flags10: https://www.nesdev.org/wiki/INES#Flags_10
 
-    return RomInfo{ .header_id = raw_header.header_id,
-                    .prg_rom_banks = raw_header.prg_rom_banks,
+    return RomInfo{ .prg_rom_banks = raw_header.prg_rom_banks,
                     .chr_rom_banks = raw_header.chr_rom_banks,
                     .prg_ram_banks = raw_header.flags8,
                     .mapper_id =
                       static_cast<std::uint8_t>(flags7.mapper_high_bits | flags6.mapper_low_bits),
-                    .reserved_bits = flags9.reserved_bits,
-                    .padding = raw_header.padding,
+                    .rom_format = flags7.rom_format,
                     .mirroring = flags6.mirroring,
                     .console_type = flags7.console_type,
                     .tv_system = flags9.tv_system,
@@ -175,44 +187,7 @@ std::expected<RomInfo, std::string> parse_header(std::span<std::uint8_t> rom_dat
                     .has_alternate_nt_layout = flags6.has_alternate_nt_layout };
 }
 
-std::expected<void, std::string> validate_rom(const RomInfo& rom_info)
-{
-    if (rom_info.prg_rom_banks == 0)
-    {
-        return std::unexpected{ "PRG ROM banks equals 0" };
-    }
-    if (rom_info.chr_rom_banks == 0)
-    {
-        return std::unexpected{ "CHR ROM banks equals 0" };
-    }
-    if (!std::ranges::equal(rom_info.header_id, HEADER_ID))
-    {
-        return std::unexpected{ "Invalid header id" };
-    }
-    if (std::ranges::any_of(rom_info.padding, [](std::uint8_t v) { return v != 0; }))
-    {
-        return std::unexpected{ "Header padding is not zero" };
-    }
-    if (rom_info.mirroring == Mirroring::UNKNOWN)
-    {
-        return std::unexpected{ "Unknown mirroring" };
-    }
-    if (rom_info.console_type == ConsoleType::UNKNOWN)
-    {
-        return std::unexpected{ "Unknown console type" };
-    }
-    if (rom_info.tv_system == TVSystem::UNKNOWN)
-    {
-        return std::unexpected{ "Unknown tv system" };
-    }
-    if (rom_info.reserved_bits != 0)
-    {
-        return std::unexpected{ "Reserved bits in flags9 aren't filled with zeros" };
-    }
-    return {};
-}
-
-ParseRomResult parse_ines_rom(std::vector<std::uint8_t> rom_data)
+std::expected<RomData, std::string> parse_ines_rom(std::vector<std::uint8_t> rom_data)
 {
     auto parse_result = parse_header(rom_data);
     if (!parse_result)
@@ -220,52 +195,72 @@ ParseRomResult parse_ines_rom(std::vector<std::uint8_t> rom_data)
         return std::unexpected{ std::move(parse_result).error() };
     }
 
-    const RomInfo& rom_info{ parse_result.value() };
-    if (auto validation_result = validate_rom(rom_info); !validation_result)
+    const RomInfo rom_info{ parse_result.value() };
+
+    const std::size_t prg_rom_size = PRG_BANK_SIZE * rom_info.prg_rom_banks;
+    const std::size_t chr_rom_size = CHR_BANK_SIZE * rom_info.chr_rom_banks;
+    const std::size_t prg_rom_start_idx = HEADER_SIZE + (rom_info.has_trainer ? TRAINER_SIZE : 0);
+
+    if ((prg_rom_start_idx + prg_rom_size + chr_rom_size) != rom_data.size())
     {
-        return std::unexpected{ std::move(validation_result).error() };
+        return std::unexpected{ "ROM size mismatch" };
     }
 
-    const std::size_t payload_offset = HEADER_SIZE + (rom_info.has_trainer ? TRAINER_SIZE : 0);
-    const std::size_t total_size = payload_offset + (PRG_BANK_SIZE * rom_info.prg_rom_banks) +
-                                   (CHR_BANK_SIZE * rom_info.chr_rom_banks);
+    // clang-format off
+    auto prg_rom = rom_data |
+                   std::views::drop(prg_rom_start_idx) |
+                   std::views::take(prg_rom_size) |
+                   std::ranges::to<std::vector>();
+    auto chr_rom = rom_data |
+                   std::views::drop(prg_rom_start_idx + prg_rom_size) |
+                   std::views::take(chr_rom_size) |
+                   std::ranges::to<std::vector>();
+    // clang-format on
 
-    if (total_size != rom_data.size())
+    // TODO: call shrink_to_fit
+    return RomData{ .prg_rom = std::move(prg_rom),
+                    .chr_rom = std::move(chr_rom),
+                    .rom_info = rom_info };
+}
+
+std::expected<void, std::string> validate_header_id(std::span<const std::uint8_t> rom_data)
+{
+    if (rom_data.size() < HEADER_ID_SIZE)
     {
-        return std::unexpected{ "Total size of ROM doesn't match with calculated" };
+        return std::unexpected{ "ROM is too small for header ID parsing" };
     }
-
-    rom_data.erase(rom_data.begin(),
-                   rom_data.begin() +
-                     static_cast<std::vector<std::uint8_t>::difference_type>(payload_offset));
-
-    auto create_mapper_result{ create_mapper({ .id = rom_info.mapper_id,
-                                               .prg_banks = rom_info.prg_rom_banks,
-                                               .rom = std::move(rom_data) }) };
-    if (!create_mapper_result)
+    if (!std::ranges::equal(rom_data.first<HEADER_ID_SIZE>(), HEADER_ID))
     {
-        return std::unexpected{ std::move(create_mapper_result).error() };
+        return std::unexpected{ "Invalid iNES header ID" };
     }
-
-    return ParseRomResult{ std::in_place, rom_info, std::move(create_mapper_result).value() };
+    return {};
 }
 
 } // namespace
 
 namespace mayones::core::rom {
 
-std::expected<Cartridge, std::string> load_rom(std::vector<std::uint8_t> rom_data)
+std::expected<RomData, std::string> load_rom(std::vector<std::uint8_t> rom_data)
 {
-    switch (identify_rom_format(rom_data))
+    if (auto validation_result = validate_header_id(rom_data); !validation_result)
+    {
+        return std::unexpected{ std::move(validation_result).error() };
+    }
+
+    auto id_rom_result = identify_rom_format(rom_data);
+    if (!id_rom_result)
+    {
+        return std::unexpected{ std::move(id_rom_result).error() };
+    }
+
+    switch (id_rom_result.value())
     {
         case RomFormat::INES:
             return parse_ines_rom(std::move(rom_data));
         case RomFormat::ARCHAIC_INES:
-            return std::unexpected{ "Archaic iNES ROM's not supported" };
-        case RomFormat::NES20:
-            return std::unexpected{ "NES 2.0 ROM's not supported" };
-        case RomFormat::UNKNOWN:
-            return std::unexpected{ "Unknown ROM format" };
+            return std::unexpected{ "Archaic iNES format is not supported" };
+        case RomFormat::INES20:
+            return std::unexpected{ "NES 2.0 format is not supported" };
         default:
             std::unreachable();
     }

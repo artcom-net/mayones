@@ -1,5 +1,5 @@
 fail_fast: false
-exclude: ^(\.cache|\.venv|\.vs|\.zed|docs|out|rom)/
+exclude: ^(\.cache|\.venv|\.vs|\.zed|docs|out|rom|tests/core/data)/
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks

@@ -3,7 +3,6 @@
 #include <format>
 #include <span>
 #include <string>
-#include <utility>
 
 #include "mayones/core/mapper.hpp"
 #include "mayones/core/rom.hpp"
@@ -13,59 +12,62 @@ namespace mayones::core::rom {
 constexpr std::uint16_t MASK_16KB{ 0x3FFF };
 constexpr std::uint16_t MASK_32KB{ 0x7FFF };
 
-std::expected<Mapper, std::string> create_mapper(CreateMapperConfig mapper_config)
+std::expected<Mapper, std::string> create_mapper(const RomData& rom_data)
 {
-    switch (mapper_config.id)
+    switch (rom_data.rom_info.mapper_id)
     {
-        case Mapper0::ID:
-            return Mapper0::create(mapper_config.prg_banks, std::move(mapper_config.rom));
+        case 0:
+            return NromMapper::create(rom_data);
         default:
-            return std::unexpected{ std::format("Unsupported mapper: id={}", mapper_config.id) };
+            return std::unexpected{ std::format("Unsupported mapper: id={}",
+                                                rom_data.rom_info.mapper_id) };
     }
 }
 
-inline std::uint8_t DummyMapper::read_prg(std::uint16_t address) const
+std::uint8_t DummyMapper::read_prg(std::uint16_t address) const
 {
     return 0x00;
 }
 
-inline std::uint8_t DummyMapper::read_chr(std::uint16_t address) const
+void DummyMapper::write_prg(std::uint16_t address, std::uint8_t data)
 {
-    return 0x00;
 }
 
-std::expected<Mapper0, std::string> Mapper0::create(std::uint8_t prg_banks,
-                                                    std::vector<std::uint8_t> rom)
+std::expected<NromMapper, std::string> NromMapper::create(const RomData& rom_data) noexcept
 {
-    if (prg_banks != 1 && prg_banks != 2)
+    if (rom_data.rom_info.prg_rom_banks != 1 && rom_data.rom_info.prg_rom_banks != 2)
     {
         return std::unexpected{ "Invalid number of PRG banks" };
     }
-
-    if (rom.size() != ((prg_banks * PRG_BANK_SIZE) + CHR_BANK_SIZE))
+    if (rom_data.rom_info.chr_rom_banks != 1)
     {
-        return std::unexpected{ "ROM size mismatch" };
+        return std::unexpected{ "Invalid number of CHR banks" };
     }
-
-    return Mapper0{ prg_banks, std::move(rom) };
+    if (rom_data.prg_rom.size() != (rom_data.rom_info.prg_rom_banks * PRG_BANK_SIZE))
+    {
+        return std::unexpected{ "PRG ROM size mismatch" };
+    }
+    if (rom_data.chr_rom.size() != (rom_data.rom_info.chr_rom_banks * CHR_BANK_SIZE))
+    {
+        return std::unexpected{ "PRG ROM size mismatch" };
+    }
+    return NromMapper{ rom_data };
 }
 
-Mapper0::Mapper0(std::uint8_t prg_banks, std::vector<std::uint8_t> rom) :
-    m_rom{ std::move(rom) },
-    m_prg_rom{ std::span{ m_rom }.subspan(0, prg_banks * PRG_BANK_SIZE) },
-    m_chr_rom{ std::span{ m_rom }.subspan(prg_banks * PRG_BANK_SIZE, CHR_BANK_SIZE) },
-    m_prg_address_mask{ prg_banks == 1 ? MASK_16KB : MASK_32KB }
+NromMapper::NromMapper(const RomData& rom_data) :
+    prg_rom_{ rom_data.prg_rom },
+    chr_rom_{ rom_data.chr_rom },
+    address_mask_{ rom_data.rom_info.prg_rom_banks == 1 ? MASK_16KB : MASK_32KB }
 {
 }
 
-inline std::uint8_t Mapper0::read_prg(std::uint16_t address) const
+std::uint8_t NromMapper::read_prg(std::uint16_t address) const
 {
-    return m_prg_rom[address & m_prg_address_mask];
+    return prg_rom_[address & address_mask_];
 }
 
-inline std::uint8_t Mapper0::read_chr(std::uint16_t address) const
+void NromMapper::write_prg(std::uint16_t address, std::uint8_t data)
 {
-    return m_chr_rom[address];
 }
 
 } // namespace mayones::core::rom

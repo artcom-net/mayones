@@ -3,9 +3,11 @@ add_library(${MAYONES_CORE} STATIC)
 target_sources(
     ${MAYONES_CORE}
     PRIVATE
-        "cartridge.cpp"
+        "bus.cpp"
+        "cpu.cpp"
         "core.cpp"
         "mapper.cpp"
+        "rom.cpp"
         "rom_loader.cpp"
 )
 target_include_directories(${MAYONES_CORE} PUBLIC "include")

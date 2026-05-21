@@ -33,7 +33,7 @@ class ReadConfigValidInputParams : public testing::TestWithParam<ReadConfigParam
 
 } // namespace
 
-TEST(AppTest, ReadConfigCLIEmptyArgs)
+TEST(App, ReadConfigCLIEmptyArgs)
 {
     auto read_result =
       mayones::app::read_config(std::span<const std::string_view>{}, "MAYONES_TEST_"sv);
@@ -41,7 +41,7 @@ TEST(AppTest, ReadConfigCLIEmptyArgs)
     ASSERT_EQ(read_result.error(), "CLI args is empty"sv);
 }
 
-TEST(AppTest, ReadConfigUnexpectedCLIOption)
+TEST(App, ReadConfigUnexpectedCLIOption)
 {
     constexpr std::array invalid_options{ "mayones.exe"sv, "--invalid-opt"sv };
     auto read_result = mayones::app::read_config(std::span{ invalid_options }, "MAYONES_TEST_"sv);
@@ -49,7 +49,7 @@ TEST(AppTest, ReadConfigUnexpectedCLIOption)
     ASSERT_EQ(read_result.error(), "Unexpected option `--invalid-opt`"sv);
 }
 
-TEST(AppTest, ReadConfigUnexpectedPositionalArgument)
+TEST(App, ReadConfigUnexpectedPositionalArgument)
 {
     constexpr std::array invalid_options{ "mayones.exe"sv, "--debug"sv, "unexpected-value"sv };
     auto read_result = mayones::app::read_config(std::span{ invalid_options }, "MAYONES_TEST_"sv);
@@ -68,7 +68,7 @@ TEST_P(ReadConfigValidInputParams, ReadConfig)
 }
 
 INSTANTIATE_TEST_SUITE_P(
-  AppTest,
+  App,
   ReadConfigValidInputParams,
   testing::Values(
     ReadConfigParams{ .cli_args = { "mayones.exe" },

@@ -5,7 +5,9 @@
 #include <string>
 #include <vector>
 
-#include "mayones/core/cartridge.hpp"
+#include "mayones/core/bus.hpp"
+#include "mayones/core/cpu.hpp"
+#include "mayones/core/mapper.hpp"
 #include "mayones/core/rom.hpp"
 
 namespace mayones::core {
@@ -17,8 +19,16 @@ public:
     std::expected<void, std::string> load_rom(std::vector<std::uint8_t> rom_data);
     [[nodiscard]] const rom::RomInfo& rom_info() const noexcept;
 
+    void reset();
+    void reset(std::uint16_t pc);
+    void tick_frame();
+    TraceEntry trace_tick_frame();
+
 private:
-    Cartridge m_cartridge;
+    rom::Mapper mapper_;
+    CpuBus bus_;
+    Cpu cpu_;
+    rom::RomData rom_data_;
 };
 
 } // namespace mayones::core
