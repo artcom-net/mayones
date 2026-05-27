@@ -73,13 +73,13 @@ struct std::formatter<mayones::core::rom::RomInfo> {
 };
 
 template<>
-struct std::formatter<mayones::core::TraceEntry> {
+struct std::formatter<mayones::core::Cpu::TraceEntry> {
     constexpr auto parse(auto& ctx)
     {
         return ctx.begin();
     }
 
-    auto format(const mayones::core::TraceEntry& trace, auto& ctx) const
+    auto format(const mayones::core::Cpu::TraceEntry& trace, auto& ctx) const
     {
         auto out_it = std::format_to(ctx.out(), "{:04X}  {:02X}", trace.pc, trace.opcode);
 

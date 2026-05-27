@@ -59,7 +59,7 @@ void NesCore::tick_frame()
     cpu_.tick();
 }
 
-TraceEntry NesCore::trace_tick_frame()
+Cpu::TraceEntry NesCore::trace_tick_frame()
 {
     return cpu_.trace_tick();
 }

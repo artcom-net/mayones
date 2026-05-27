@@ -10,43 +10,29 @@
 
 namespace mayones::core {
 
-struct TraceEntry {
-    std::uint8_t opcode;
-    std::string mnemonic;
-    std::variant<std::monostate, std::uint16_t, std::uint8_t> operand;
-    std::uint8_t a;
-    std::uint8_t x;
-    std::uint8_t y;
-    std::uint8_t p;
-    std::uint8_t sp;
-    std::uint16_t pc;
-    std::size_t cycles;
-
-    bool operator==(const TraceEntry& other) const = default;
-};
-
 class Cpu {
 public:
-    Cpu(CpuBus& bus) :
-        a_{ 0 },
-        x_{ 0 },
-        y_{ 0 },
-        p_{ 0 },
-        sp_{ 0 },
-        pc_{ 0 },
-        addr_mode_{ AddressMode::UNKNOWN },
-        operand_addr_{ 0 },
-        curr_cycle_{ 0 },
-        total_cycles_{ 0 },
-        suspend_cycles_{ 0 },
-        page_crossed_{ false },
-        bus_{ bus }
-    {
-    }
+    struct TraceEntry {
+        std::uint8_t opcode{};
+        std::string mnemonic;
+        std::variant<std::monostate, std::uint16_t, std::uint8_t> operand;
+        std::uint8_t a{};
+        std::uint8_t x{};
+        std::uint8_t y{};
+        std::uint8_t p{};
+        std::uint8_t sp{};
+        std::uint16_t pc{};
+        std::size_t cycles{};
 
-    std::size_t reset();
-    std::size_t reset(std::uint16_t pc);
-    std::size_t tick();
+        bool operator==(const TraceEntry& other) const = default;
+    };
+
+    explicit Cpu(CpuBus& bus);
+
+    void reset();
+    void reset(std::uint16_t pc);
+
+    void tick();
     TraceEntry trace_tick();
 
 private:
@@ -62,7 +48,6 @@ private:
     };
 
     enum class AddressMode : std::uint8_t {
-        UNKNOWN,
         ACCUMULATOR,
         IMPLIED,
         IMMEDIATE,
@@ -78,29 +63,16 @@ private:
         RELATIVE
     };
 
+    struct CoreContext {
+        std::uint16_t pc{};
+        std::uint8_t a{};
+        std::uint8_t x{};
+        std::uint8_t y{};
+        std::uint8_t flags{};
+        std::uint8_t sp{};
+    };
+
     struct Instruction {
-        Instruction() :
-            mnemonic{ "UNKNOWN" },
-            addr_mode{ Cpu::AddressMode::UNKNOWN },
-            cycles{ 0 },
-            check_page_cross{ false },
-            func{ nullptr }
-        {
-        }
-
-        Instruction(std::string_view mnemonic,
-                    AddressMode addr_mode,
-                    std::uint8_t cycles,
-                    bool check_page_cross,
-                    void (Cpu::*func)()) :
-            mnemonic{ mnemonic },
-            addr_mode{ addr_mode },
-            cycles{ cycles },
-            check_page_cross{ check_page_cross },
-            func{ func }
-        {
-        }
-
         std::string_view mnemonic;
         AddressMode addr_mode;
         std::uint8_t cycles;
@@ -108,50 +80,43 @@ private:
         void (Cpu::*func)();
     };
 
-    static constexpr std::size_t INSTRUCTIONS_TABLE_SIZE{ 256 };
-    static const std::array<const Instruction, INSTRUCTIONS_TABLE_SIZE> INSTRUCTIONS_TABLE;
+    struct ExecutionContext {
+        const Instruction* instruction_ptr{};
+        std::uint16_t operand_address{};
+        std::uint16_t tmp_operand_address{};
+        std::uint16_t result_u16{};
+        std::uint8_t result_u8{};
+        std::uint8_t operand{};
+        std::uint8_t total_cycles_left{};
+        std::uint8_t address_mode_cycles_left{};
+    };
 
     static constexpr std::uint16_t STACK_BASE_ADDRESS{ 0x0100 };
     static constexpr std::uint16_t NMI_VECTOR_ADDRESS{ 0xFFFA };
     static constexpr std::uint16_t RESET_VECTOR_ADDRESS{ 0xFFFC };
     static constexpr std::uint16_t IRQ_VECTOR_ADDRESS{ 0xFFFE };
+    static constexpr std::size_t INSTRUCTIONS_TABLE_SIZE{ 256 };
+    static constexpr std::array<std::uint8_t, 13> ADDRESS_MODE_CYCLE_TABLE{ 0, 0, 1, 2, 1, 3, 3,
+                                                                            2, 2, 4, 4, 5, 1 };
 
-    std::uint8_t a_;
-    std::uint8_t x_;
-    std::uint8_t y_;
-    std::uint8_t p_;
-    std::uint8_t sp_;
-    std::uint16_t pc_;
+    static const std::array<const Instruction, 256> INSTRUCTION_TABLE;
 
-    AddressMode addr_mode_;
-    std::uint16_t operand_addr_;
-    std::size_t curr_cycle_;
-    std::size_t total_cycles_;
-    std::size_t suspend_cycles_;
-    bool page_crossed_;
-
+    CoreContext core_ctx_{};
+    ExecutionContext exec_ctx_{};
     CpuBus& bus_;
+    std::size_t total_cycles_{};
 
-    std::size_t reset_registers(std::uint16_t pc) noexcept;
-
+    void reset_registers(std::uint16_t pc);
     void push_stack(std::uint8_t data);
     std::uint8_t pop_stack();
-
     void set_flag(Flag flag, std::uint8_t value);
     void set_nz_flags(std::uint8_t data);
 
-    bool is_page_crossed(std::uint16_t address1, std::uint16_t address2) const;
-    std::uint16_t read_wrapped_page(std::uint16_t address) const;
+    std::uint16_t read_wrapped_page(std::uint16_t address, std::uint16_t pointer);
+    void resolve_indexed_zeropage_address(std::uint8_t index);
+    void resolve_indexed_absolute_address(std::uint8_t index);
 
-    std::uint16_t resolve_immediate();
-    std::uint16_t resolve_zeropage(std::uint8_t offset);
-    std::uint16_t resolve_absolute(std::uint8_t offset);
-    std::uint16_t resolve_indirect();
-    std::uint16_t resolve_preindex_indirect();
-    std::uint16_t resolve_postindex_indirect();
-    std::uint16_t resolve_relative();
-
-    std::uint8_t get_operand() const;
+    std::uint8_t read_operand();
     void store(std::uint8_t data);
 
     void brk();
@@ -161,9 +126,16 @@ private:
     void eor();
 
     void asl();
+    void asl_a();
+
     void lsr();
+    void lsr_a();
+
     void rol();
+    void rol_a();
+
     void ror();
+    void ror_a();
 
     void bit();
 

@@ -24,7 +24,7 @@ using namespace std::string_view_literals;
 
 namespace mayones::core {
 
-static std::ostream& operator<<(std::ostream& os, const mayones::core::TraceEntry& trace)
+static std::ostream& operator<<(std::ostream& os, const mayones::core::Cpu::TraceEntry& trace)
 {
     os << std::format("pc={:04X} oc={:02X}", trace.pc, trace.opcode);
 
@@ -57,7 +57,7 @@ static std::ostream& operator<<(std::ostream& os, const mayones::core::TraceEntr
 
 namespace {
 
-using TraceBuffer = std::vector<mayones::core::TraceEntry>;
+using TraceBuffer = std::vector<mayones::core::Cpu::TraceEntry>;
 
 template<typename T>
 T parse_number(std::string_view str_value, int base)
@@ -78,7 +78,7 @@ T parse_register_data(std::string_view reg_data, int base)
     return parse_number<T>(reg_data.substr(reg_data.find(':') + 1), base);
 }
 
-mayones::core::TraceEntry parse_trace_entry(const std::string& line)
+mayones::core::Cpu::TraceEntry parse_trace_entry(const std::string& line)
 {
     constexpr std::size_t MIN_TOKENS_COUNT{ 10 };
 

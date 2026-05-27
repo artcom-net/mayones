@@ -1,131 +1,314 @@
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
+#include <utility>
 #include <variant>
 
 #include "mayones/core/cpu.hpp"
 
+namespace {
+
+bool is_page_crossed(std::uint16_t address1, std::uint16_t address2)
+{
+    return (address1 & 0xFF00) != (address2 & 0xFF00);
+}
+
+} // namespace
+
 namespace mayones::core {
 
-// bool TraceEntry::operator==(const TraceEntry& other) const noexcept
-// {
-//     return opcode == other.opcode && mnemonic == other.mnemonic && operand == other.operand &&
-//            a == other.a && x == other.x && y == other.y && p == other.p && sp == other.sp &&
-//            pc == other.pc && cycles == other.cycles;
-// }
-
-const std::array<const Cpu::Instruction, Cpu::INSTRUCTIONS_TABLE_SIZE> Cpu::INSTRUCTIONS_TABLE = {
+const std::array<const Cpu::Instruction, Cpu::INSTRUCTIONS_TABLE_SIZE> Cpu::INSTRUCTION_TABLE = {
 #include "cpu_instructions.inc"
 };
 
-std::size_t Cpu::reset_registers(std::uint16_t pc) noexcept
+Cpu::Cpu(CpuBus& bus) :
+    bus_{ bus }
 {
-    constexpr std::size_t RESET_CYCLES{ 7 };
-    a_ = 0x00;
-    x_ = 0x00;
-    y_ = 0x00;
-    sp_ = 0xFD;
-    p_ = Flag::INTERRUPT | Flag::UNUSED;
-    pc_ = pc;
-    total_cycles_ = RESET_CYCLES;
-    return total_cycles_;
 }
 
-std::size_t Cpu::reset()
+void Cpu::reset_registers(std::uint16_t pc)
 {
-    std::uint16_t pc = bus_.read(RESET_VECTOR_ADDRESS) | (bus_.read(RESET_VECTOR_ADDRESS + 1) << 8);
-    return reset_registers(pc);
+    core_ctx_.a = 0x00;
+    core_ctx_.x = 0x00;
+    core_ctx_.y = 0x00;
+    core_ctx_.sp = 0xFD;
+    core_ctx_.flags = Flag::INTERRUPT | Flag::UNUSED;
+    core_ctx_.pc = pc;
+    total_cycles_ = 7;
 }
 
-std::size_t Cpu::reset(std::uint16_t pc)
+void Cpu::reset()
 {
-    return reset_registers(pc);
+    reset_registers(bus_.read(RESET_VECTOR_ADDRESS) | (bus_.read(RESET_VECTOR_ADDRESS + 1) << 8));
 }
 
-std::size_t Cpu::tick()
+void Cpu::reset(std::uint16_t pc)
 {
-    if (suspend_cycles_ > 0)
+    reset_registers(pc);
+}
+
+void Cpu::push_stack(std::uint8_t data)
+{
+    bus_.write(STACK_BASE_ADDRESS | core_ctx_.sp--, data);
+}
+
+std::uint8_t Cpu::pop_stack()
+{
+    return bus_.read(STACK_BASE_ADDRESS | ++core_ctx_.sp);
+}
+
+void Cpu::set_flag(Flag flag, std::uint8_t value)
+{
+    if (value)
     {
-        --suspend_cycles_;
-        ++total_cycles_;
-        return 1;
+        core_ctx_.flags |= flag;
     }
-
-    curr_cycle_ = 0;
-    std::uint8_t opcode{ bus_.read(pc_++) };
-    const Instruction& instruction = INSTRUCTIONS_TABLE[opcode];
-    addr_mode_ = instruction.addr_mode;
-
-    switch (instruction.addr_mode)
+    else
     {
-        case AddressMode::ACCUMULATOR:
-        case AddressMode::IMPLIED:
+        core_ctx_.flags &= ~flag;
+    }
+}
+
+void Cpu::set_nz_flags(std::uint8_t data)
+{
+    set_flag(Flag::ZERO, data == 0 ? 1 : 0);
+    set_flag(Flag::NEGATIVE, (data >> 7) & 1);
+}
+
+std::uint16_t Cpu::read_wrapped_page(std::uint16_t address, std::uint16_t pointer)
+{
+    if (is_page_crossed(address, address + 1))
+    {
+        pointer |= bus_.read(address & 0xFF00) << 8;
+    }
+    else
+    {
+        pointer |= bus_.read(address + 1) << 8;
+    }
+    return pointer;
+}
+
+void Cpu::resolve_indexed_zeropage_address(std::uint8_t index)
+{
+    switch (exec_ctx_.address_mode_cycles_left)
+    {
+        case 2:
+            exec_ctx_.operand_address = bus_.read(core_ctx_.pc++);
             break;
-        case AddressMode::IMMEDIATE:
-            operand_addr_ = resolve_immediate();
+        case 1:
+            exec_ctx_.operand_address = (exec_ctx_.operand_address + index) & 0x00FF;
             break;
-        case AddressMode::ABSOLUTE:
-            operand_addr_ = resolve_absolute(0);
-            break;
-        case AddressMode::ZEROPAGE:
-            operand_addr_ = resolve_zeropage(0);
-            break;
-        case AddressMode::ABSOLUTE_X:
-            operand_addr_ = resolve_absolute(x_);
-            break;
-        case AddressMode::ABSOLUTE_Y:
-            operand_addr_ = resolve_absolute(y_);
-            break;
-        case AddressMode::ZEROPAGE_X:
-            operand_addr_ = resolve_zeropage(x_);
-            break;
-        case AddressMode::ZEROPAGE_Y:
-            operand_addr_ = resolve_zeropage(y_);
-            break;
-        case AddressMode::INDIRECT:
-            operand_addr_ = resolve_indirect();
-            break;
-        case AddressMode::X_INDIRECT:
-            operand_addr_ = resolve_preindex_indirect();
-            break;
-        case AddressMode::INDIRECT_Y:
-            operand_addr_ = resolve_postindex_indirect();
-            break;
-        case AddressMode::RELATIVE:
-            operand_addr_ = resolve_relative();
-            break;
-        case AddressMode::UNKNOWN:
         default:
             std::unreachable();
     }
-    (this->*instruction.func)();
-    if (instruction.check_page_cross && page_crossed_)
-    {
-        ++curr_cycle_;
-        page_crossed_ = false;
-    }
-    curr_cycle_ += instruction.cycles;
-    total_cycles_ += curr_cycle_;
-    return curr_cycle_;
 }
 
-TraceEntry Cpu::trace_tick()
+void Cpu::resolve_indexed_absolute_address(std::uint8_t index)
 {
-    std::uint8_t trace_a{ a_ };
-    std::uint8_t trace_x{ x_ };
-    std::uint8_t trace_y{ y_ };
-    std::uint8_t trace_p{ p_ };
-    std::uint8_t trace_sp{ sp_ };
-    std::uint16_t trace_pc{ pc_ };
+    switch (exec_ctx_.address_mode_cycles_left)
+    {
+        case 3:
+            exec_ctx_.operand_address = bus_.read(core_ctx_.pc++);
+            break;
+        case 2: {
+            exec_ctx_.operand_address |= bus_.read(core_ctx_.pc++) << 8;
+            bool page_cross =
+              is_page_crossed(exec_ctx_.operand_address, exec_ctx_.operand_address + index);
+            if (exec_ctx_.instruction_ptr->check_page_cross)
+            {
+                if (page_cross)
+                {
+                    ++exec_ctx_.total_cycles_left;
+                }
+                else
+                {
+                    --exec_ctx_.address_mode_cycles_left;
+                }
+            }
+            exec_ctx_.operand_address += index;
+            break;
+        }
+        case 1:
+            // page cross penalty
+            break;
+        default:
+            std::unreachable();
+    }
+}
+
+void Cpu::tick()
+{
+    if (exec_ctx_.total_cycles_left == 0)
+    {
+        exec_ctx_ = ExecutionContext{};
+        std::uint8_t opcode = bus_.read(core_ctx_.pc++);
+        exec_ctx_.instruction_ptr = &INSTRUCTION_TABLE[opcode];
+
+        exec_ctx_.total_cycles_left = exec_ctx_.instruction_ptr->cycles - 1; // minus fetch opcode
+        exec_ctx_.address_mode_cycles_left =
+          ADDRESS_MODE_CYCLE_TABLE[std::to_underlying(exec_ctx_.instruction_ptr->addr_mode)];
+
+        ++total_cycles_;
+
+        return;
+    }
+
+    if (exec_ctx_.address_mode_cycles_left > 0)
+    {
+        switch (exec_ctx_.instruction_ptr->addr_mode)
+        {
+            case AddressMode::IMMEDIATE:
+            case AddressMode::RELATIVE:
+                exec_ctx_.operand_address = core_ctx_.pc++;
+                break;
+            case AddressMode::ABSOLUTE:
+                switch (exec_ctx_.address_mode_cycles_left)
+                {
+                    case 2:
+                        exec_ctx_.operand_address = bus_.read(core_ctx_.pc++);
+                        break;
+                    case 1:
+                        exec_ctx_.operand_address |= bus_.read(core_ctx_.pc++) << 8;
+                        break;
+                    default:
+                        std::unreachable();
+                }
+                break;
+            case AddressMode::ZEROPAGE:
+                exec_ctx_.operand_address = bus_.read(core_ctx_.pc++);
+                break;
+            case AddressMode::ABSOLUTE_X:
+                resolve_indexed_absolute_address(core_ctx_.x);
+                break;
+            case AddressMode::ABSOLUTE_Y:
+                resolve_indexed_absolute_address(core_ctx_.y);
+                break;
+            case AddressMode::ZEROPAGE_X:
+                resolve_indexed_zeropage_address(core_ctx_.x);
+                break;
+            case AddressMode::ZEROPAGE_Y:
+                resolve_indexed_zeropage_address(core_ctx_.y);
+                break;
+            case AddressMode::INDIRECT:
+                switch (exec_ctx_.address_mode_cycles_left)
+                {
+                    case 4:
+                        exec_ctx_.tmp_operand_address = bus_.read(core_ctx_.pc++);
+                        break;
+                    case 3:
+                        exec_ctx_.tmp_operand_address |= bus_.read(core_ctx_.pc++) << 8;
+                        break;
+                    case 2: {
+                        exec_ctx_.operand_address = bus_.read(exec_ctx_.tmp_operand_address);
+                        break;
+                    }
+                    case 1:
+                        exec_ctx_.operand_address = read_wrapped_page(exec_ctx_.tmp_operand_address,
+                                                                      exec_ctx_.operand_address);
+                        break;
+                    default:
+                        std::unreachable();
+                }
+                break;
+            case AddressMode::X_INDIRECT:
+                switch (exec_ctx_.address_mode_cycles_left)
+                {
+                    case 4:
+                        exec_ctx_.tmp_operand_address =
+                          bus_.read(core_ctx_.pc++); // IS NOT OPERAND ADDRESS, IS VALUE
+                        break;
+                    case 3:
+                        exec_ctx_.tmp_operand_address =
+                          (exec_ctx_.tmp_operand_address + core_ctx_.x) & 0xFF;
+                        break;
+                    case 2:
+                        exec_ctx_.operand_address = bus_.read(exec_ctx_.tmp_operand_address);
+                        break;
+                    case 1:
+                        exec_ctx_.operand_address = read_wrapped_page(exec_ctx_.tmp_operand_address,
+                                                                      exec_ctx_.operand_address);
+                        break;
+                    default:
+                        std::unreachable();
+                }
+                break;
+            case AddressMode::INDIRECT_Y:
+                switch (exec_ctx_.address_mode_cycles_left)
+                {
+                    case 5:
+                        exec_ctx_.tmp_operand_address = bus_.read(core_ctx_.pc++);
+                        break;
+                    case 4:
+                        exec_ctx_.operand_address = bus_.read(exec_ctx_.tmp_operand_address);
+                        break;
+                    case 3:
+                        exec_ctx_.operand_address = read_wrapped_page(exec_ctx_.tmp_operand_address,
+                                                                      exec_ctx_.operand_address);
+                        break;
+                    case 2: {
+                        bool page_cross = is_page_crossed(exec_ctx_.operand_address,
+                                                          exec_ctx_.operand_address + core_ctx_.y);
+                        if (exec_ctx_.instruction_ptr->check_page_cross && page_cross)
+                        {
+                            ++exec_ctx_.total_cycles_left;
+                        }
+                        else
+                        {
+                            --exec_ctx_.address_mode_cycles_left;
+                        }
+                        exec_ctx_.operand_address += core_ctx_.y;
+                        break;
+                    }
+                    case 1:
+                        // page cross penalty
+                        break;
+                    default:
+                        std::unreachable();
+                }
+                break;
+            default:
+                std::unreachable();
+        }
+
+        --exec_ctx_.total_cycles_left;
+        --exec_ctx_.address_mode_cycles_left;
+        ++total_cycles_;
+
+        if (exec_ctx_.total_cycles_left == 0)
+        {
+            (this->*exec_ctx_.instruction_ptr->func)();
+        }
+
+        return;
+    }
+
+    (this->*exec_ctx_.instruction_ptr->func)();
+    --exec_ctx_.total_cycles_left;
+    ++total_cycles_;
+}
+
+Cpu::TraceEntry Cpu::trace_tick()
+{
+    while (exec_ctx_.total_cycles_left != 0)
+    {
+        tick();
+    }
+
+    std::uint8_t trace_a{ core_ctx_.a };
+    std::uint8_t trace_x{ core_ctx_.x };
+    std::uint8_t trace_y{ core_ctx_.y };
+    std::uint8_t trace_p{ core_ctx_.flags };
+    std::uint8_t trace_sp{ core_ctx_.sp };
+    std::uint16_t trace_pc{ core_ctx_.pc };
     std::size_t trace_cycles{ total_cycles_ };
     std::variant<std::monostate, std::uint16_t, std::uint8_t> operand{};
 
     std::uint16_t tmp_pc{ trace_pc };
-
     std::uint8_t opcode = bus_.read(tmp_pc++);
-    const Instruction& instruction{ INSTRUCTIONS_TABLE[opcode] };
+    const Instruction* trace_instruction_ptr = &INSTRUCTION_TABLE[opcode];
 
-    switch (instruction.addr_mode)
+    switch (trace_instruction_ptr->addr_mode)
     {
         case AddressMode::ACCUMULATOR:
         case AddressMode::IMPLIED:
@@ -145,7 +328,6 @@ TraceEntry Cpu::trace_tick()
         case AddressMode::INDIRECT:
             operand = static_cast<std::uint16_t>(bus_.read(tmp_pc) | bus_.read(tmp_pc + 1) << 8);
             break;
-        case AddressMode::UNKNOWN:
         default:
             std::unreachable();
     }
@@ -153,7 +335,7 @@ TraceEntry Cpu::trace_tick()
     tick();
 
     return { .opcode = opcode,
-             .mnemonic = std::string{ instruction.mnemonic },
+             .mnemonic = std::string{ trace_instruction_ptr->mnemonic },
              .operand = operand,
              .a = trace_a,
              .x = trace_x,
@@ -164,469 +346,607 @@ TraceEntry Cpu::trace_tick()
              .cycles = trace_cycles };
 }
 
-inline void Cpu::push_stack(std::uint8_t data)
+std::uint8_t Cpu::read_operand()
 {
-    bus_.write(STACK_BASE_ADDRESS | sp_--, data);
-}
-
-inline std::uint8_t Cpu::pop_stack()
-{
-    return bus_.read(STACK_BASE_ADDRESS | ++sp_);
-}
-
-inline void Cpu::set_flag(Flag flag, std::uint8_t value)
-{
-    if (value)
+    if (exec_ctx_.instruction_ptr->addr_mode == AddressMode::ACCUMULATOR)
     {
-        p_ |= flag;
+        return core_ctx_.a;
+    }
+    return bus_.read(exec_ctx_.operand_address);
+}
+
+void Cpu::store(std::uint8_t data)
+{
+    if (exec_ctx_.instruction_ptr->addr_mode == AddressMode::ACCUMULATOR)
+    {
+        core_ctx_.a = data;
     }
     else
     {
-        p_ &= ~flag;
-    }
-}
-
-inline void Cpu::set_nz_flags(std::uint8_t data)
-{
-    set_flag(Flag::ZERO, data == 0 ? 1 : 0);
-    set_flag(Flag::NEGATIVE, (data >> 7) & 1);
-}
-
-inline bool Cpu::is_page_crossed(std::uint16_t address1, std::uint16_t address2) const
-{
-    return (address1 & 0xFF00) != (address2 & 0xFF00);
-}
-
-inline std::uint16_t Cpu::read_wrapped_page(uint16_t address) const
-{
-    uint16_t pointer = bus_.read(address);
-    if (is_page_crossed(address, address + 1))
-    {
-        pointer |= bus_.read(address & 0xFF00) << 8;
-    }
-    else
-    {
-        pointer |= bus_.read(address + 1) << 8;
-    }
-    return pointer;
-}
-
-inline std::uint16_t Cpu::resolve_immediate()
-{
-    return pc_++;
-}
-
-inline std::uint16_t Cpu::resolve_zeropage(std::uint8_t offset)
-{
-    return (bus_.read(pc_++) + offset) & 0xFF;
-}
-
-inline std::uint16_t Cpu::resolve_absolute(std::uint8_t offset)
-{
-    std::uint16_t base_addr = bus_.read(pc_) | bus_.read(pc_ + 1) << 8;
-    pc_ += 2;
-    std::uint16_t effective_addr = (base_addr + offset) & 0xFFFF;
-    page_crossed_ = is_page_crossed(base_addr, effective_addr);
-    return effective_addr;
-}
-
-inline uint16_t Cpu::resolve_indirect()
-{
-    std::uint16_t addr = bus_.read(pc_) | bus_.read(pc_ + 1) << 8;
-    pc_ += 2;
-    return read_wrapped_page(addr);
-}
-
-inline std::uint16_t Cpu::resolve_preindex_indirect()
-{
-    std::uint16_t zeropage_addr = (bus_.read(pc_++) + x_) & 0xFF;
-    return read_wrapped_page(zeropage_addr);
-}
-
-inline std::uint16_t Cpu::resolve_postindex_indirect()
-{
-    std::uint16_t base_addr = read_wrapped_page(bus_.read(pc_++));
-    std::uint16_t effective_addr = (base_addr + y_) & 0xFFFF;
-    page_crossed_ = is_page_crossed(base_addr, effective_addr);
-    return effective_addr;
-}
-
-inline std::uint16_t Cpu::resolve_relative()
-{
-    return resolve_immediate();
-}
-
-inline std::uint8_t Cpu::get_operand() const
-{
-    return addr_mode_ == AddressMode::ACCUMULATOR ? a_ : bus_.read(operand_addr_);
-}
-
-inline void Cpu::store(std::uint8_t data)
-{
-    if (addr_mode_ == AddressMode::ACCUMULATOR)
-    {
-        a_ = data;
-    }
-    else
-    {
-        bus_.write(operand_addr_, data);
+        bus_.write(exec_ctx_.operand_address, data);
     }
 }
 
 void Cpu::brk()
 {
-    std::uint16_t return_addr = ++pc_;
-    push_stack(return_addr >> 8);
-    push_stack(return_addr & 0xFF);
-    push_stack(p_ | Flag::BREAK);
-    p_ |= Flag::INTERRUPT;
-    pc_ = bus_.read(IRQ_VECTOR_ADDRESS) | bus_.read(IRQ_VECTOR_ADDRESS + 1) << 8;
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 6:
+            // Although BRK only uses 1 byte, its return address skips the following byte
+            ++core_ctx_.pc;
+            break;
+        case 5:
+            push_stack(core_ctx_.pc >> 8);
+            break;
+        case 4:
+            push_stack(core_ctx_.pc & 0xFF);
+            break;
+        case 3:
+            push_stack(core_ctx_.flags | Flag::BREAK);
+            core_ctx_.flags |= Flag::INTERRUPT;
+            break;
+        case 2:
+            core_ctx_.pc = bus_.read(IRQ_VECTOR_ADDRESS);
+            break;
+        case 1:
+            core_ctx_.pc |= bus_.read(IRQ_VECTOR_ADDRESS + 1) << 8;
+            break;
+        default:
+            std::unreachable();
+    }
 }
 
 void Cpu::ora()
 {
-    a_ |= get_operand();
-    set_nz_flags(a_);
+    core_ctx_.a |= read_operand();
+    set_nz_flags(core_ctx_.a);
 }
 
 void Cpu::and_()
 {
-    a_ &= get_operand();
-    set_nz_flags(a_);
+    core_ctx_.a &= read_operand();
+    set_nz_flags(core_ctx_.a);
 }
 
 void Cpu::eor()
 {
-    a_ ^= get_operand();
-    set_nz_flags(a_);
+    core_ctx_.a ^= read_operand();
+    set_nz_flags(core_ctx_.a);
 }
 
 void Cpu::asl()
 {
-    std::uint8_t operand = get_operand();
-    std::uint8_t result = operand << 1 & 0xFF;
-    set_flag(Flag::CARRY, operand >> 7);
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 3:
+            exec_ctx_.operand = read_operand();
+            break;
+        case 2:
+            exec_ctx_.result_u8 = (exec_ctx_.operand << 1) & 0xFF;
+            store(exec_ctx_.operand);
+            break;
+        case 1:
+            set_flag(Flag::CARRY, exec_ctx_.operand >> 7);
+            set_nz_flags(exec_ctx_.result_u8);
+            store(exec_ctx_.result_u8);
+            break;
+        default:
+            std::unreachable();
+    }
+}
+
+void Cpu::asl_a()
+{
+    std::uint8_t result = (core_ctx_.a << 1) & 0xFF;
+    set_flag(Flag::CARRY, core_ctx_.a >> 7);
     set_nz_flags(result);
-    store(result);
+    core_ctx_.a = result;
 }
 
 void Cpu::lsr()
 {
-    std::uint8_t operand = get_operand();
-    std::uint8_t result = operand >> 1;
-    set_flag(Flag::CARRY, operand & 1);
-    set_nz_flags(result);
-    store(result);
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 3:
+            exec_ctx_.operand = read_operand();
+            break;
+        case 2:
+            exec_ctx_.result_u8 = exec_ctx_.operand >> 1;
+            store(exec_ctx_.operand);
+            break;
+        case 1:
+            set_flag(Flag::CARRY, exec_ctx_.operand & 1);
+            set_nz_flags(exec_ctx_.result_u8);
+            store(exec_ctx_.result_u8);
+            break;
+        default:
+            std::unreachable();
+    }
+}
+
+void Cpu::lsr_a()
+{
+    exec_ctx_.result_u8 = core_ctx_.a >> 1;
+    set_flag(Flag::CARRY, core_ctx_.a & 1);
+    set_nz_flags(exec_ctx_.result_u8);
+    core_ctx_.a = exec_ctx_.result_u8;
 }
 
 void Cpu::rol()
 {
-    std::uint8_t operand = get_operand();
-    std::uint8_t result = (operand << 1 | p_ & Flag::CARRY) & 0xFF;
-    set_flag(Flag::CARRY, operand >> 7);
-    set_nz_flags(result);
-    store(result);
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 3:
+            exec_ctx_.operand = read_operand();
+            break;
+        case 2:
+            exec_ctx_.result_u8 = (exec_ctx_.operand << 1 | (core_ctx_.flags & Flag::CARRY)) & 0xFF;
+            store(exec_ctx_.operand);
+            break;
+        case 1:
+            set_flag(Flag::CARRY, exec_ctx_.operand >> 7);
+            set_nz_flags(exec_ctx_.result_u8);
+            store(exec_ctx_.result_u8);
+            break;
+        default:
+            std::unreachable();
+    }
+}
+
+void Cpu::rol_a()
+{
+    exec_ctx_.result_u8 = (core_ctx_.a << 1 | (core_ctx_.flags & Flag::CARRY)) & 0xFF;
+    set_flag(Flag::CARRY, core_ctx_.a >> 7);
+    set_nz_flags(exec_ctx_.result_u8);
+    core_ctx_.a = exec_ctx_.result_u8;
 }
 
 void Cpu::ror()
 {
-    std::uint8_t operand = get_operand();
-    std::uint8_t result = (operand >> 1 | (p_ & Flag::CARRY) << 7) & 0xFF;
-    set_flag(Flag::CARRY, operand & 1);
-    set_nz_flags(result);
-    store(result);
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 3:
+            exec_ctx_.operand = read_operand();
+            break;
+        case 2:
+            exec_ctx_.result_u8 =
+              (exec_ctx_.operand >> 1 | (core_ctx_.flags & Flag::CARRY) << 7) & 0xFF;
+            store(exec_ctx_.operand);
+            break;
+        case 1:
+            set_flag(Flag::CARRY, exec_ctx_.operand & 1);
+            set_nz_flags(exec_ctx_.result_u8);
+            store(exec_ctx_.result_u8);
+            break;
+        default:
+            std::unreachable();
+    }
+}
+
+void Cpu::ror_a()
+{
+    exec_ctx_.result_u8 = (core_ctx_.a >> 1 | (core_ctx_.flags & Flag::CARRY) << 7) & 0xFF;
+    set_flag(Flag::CARRY, core_ctx_.a & 1);
+    set_nz_flags(exec_ctx_.result_u8);
+    core_ctx_.a = exec_ctx_.result_u8;
 }
 
 void Cpu::bit()
 {
-    std::uint8_t operand = get_operand();
-    set_flag(Flag::ZERO, (a_ & operand) == 0 ? 1 : 0);
-    set_flag(Flag::OVERFLOW_, (operand >> 6) & 1);
-    set_flag(Flag::NEGATIVE, operand >> 7);
+    exec_ctx_.operand = read_operand();
+    set_flag(Flag::ZERO, (core_ctx_.a & exec_ctx_.operand) == 0 ? 1 : 0);
+    set_flag(Flag::OVERFLOW_, (exec_ctx_.operand >> 6) & 1);
+    set_flag(Flag::NEGATIVE, exec_ctx_.operand >> 7);
 }
 
 void Cpu::php()
 {
-    push_stack(p_ | Flag::BREAK);
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 2:
+            break;
+        case 1:
+            push_stack(core_ctx_.flags | Flag::BREAK);
+            break;
+        default:
+            std::unreachable();
+    }
 }
 
 void Cpu::plp()
 {
-    p_ = pop_stack() & ~Flag::BREAK | Flag::UNUSED;
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 3:
+        case 2:
+            break;
+        case 1:
+            core_ctx_.flags = (pop_stack() & ~Flag::BREAK) | Flag::UNUSED;
+            break;
+        default:
+            std::unreachable();
+    }
 }
 
 void Cpu::pha()
 {
-    push_stack(a_);
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 3:
+        case 2:
+            break;
+        case 1:
+            push_stack(core_ctx_.a);
+            break;
+        default:
+            std::unreachable();
+    }
 }
 
 void Cpu::pla()
 {
-    a_ = pop_stack();
-    set_nz_flags(a_);
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 3:
+        case 2:
+            break;
+        case 1:
+            core_ctx_.a = pop_stack();
+            set_nz_flags(core_ctx_.a);
+            break;
+        default:
+            std::unreachable();
+    }
 }
 
 void Cpu::clc()
 {
-    p_ &= ~Flag::CARRY;
+    core_ctx_.flags &= ~Flag::CARRY;
 }
 
 void Cpu::sec()
 {
-    p_ |= Flag::CARRY;
+    core_ctx_.flags |= Flag::CARRY;
 }
 
 void Cpu::cli()
 {
-    p_ &= ~Flag::INTERRUPT;
+    core_ctx_.flags &= ~Flag::INTERRUPT;
 }
 
 void Cpu::sei()
 {
-    p_ |= Flag::INTERRUPT;
+    core_ctx_.flags |= Flag::INTERRUPT;
 }
 
 void Cpu::clv()
 {
-    p_ &= ~Flag::OVERFLOW_;
+    core_ctx_.flags &= ~Flag::OVERFLOW_;
 }
 
 void Cpu::cld()
 {
-    p_ &= ~Flag::DECIMAL;
+    core_ctx_.flags &= ~Flag::DECIMAL;
 }
 
 void Cpu::sed()
 {
-    p_ |= Flag::DECIMAL;
+    core_ctx_.flags |= Flag::DECIMAL;
 }
 
 void Cpu::rti()
 {
-    p_ = pop_stack() | Flag::UNUSED;
-    pc_ = pop_stack() | pop_stack() << 8;
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 5:
+            // dummy bus read
+            break;
+        case 4:
+            core_ctx_.flags = pop_stack() | Flag::UNUSED;
+            break;
+        case 3:
+            exec_ctx_.result_u16 = pop_stack();
+            break;
+        case 2:
+            exec_ctx_.result_u16 |= pop_stack() << 8;
+            break;
+        case 1:
+            core_ctx_.pc = exec_ctx_.result_u16;
+            break;
+        default:
+            std::unreachable();
+    }
 }
 
 void Cpu::rts()
 {
-    pc_ = (pop_stack() | pop_stack() << 8) + 1;
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 5:
+        case 4:
+            // dummy bus read
+            break;
+        case 3:
+            exec_ctx_.result_u16 = pop_stack();
+            break;
+        case 2:
+            exec_ctx_.result_u16 |= pop_stack() << 8;
+            break;
+        case 1:
+            core_ctx_.pc = exec_ctx_.result_u16 + 1;
+            break;
+        default:
+            std::unreachable();
+    }
 }
 
 void Cpu::jmp()
 {
-    pc_ = operand_addr_;
+    core_ctx_.pc = exec_ctx_.operand_address;
 }
 
 void Cpu::adc_(std::uint8_t operand)
 {
-    std::uint16_t result = a_ + operand + (p_ & Flag::CARRY);
-    set_flag(Flag::CARRY, result > 0xFF ? 1 : 0);
-    set_flag(Flag::OVERFLOW_, ((a_ ^ result) & (operand ^ result) & 0x80) >> 7 ? 1 : 0);
-    result &= 0xFF;
-    set_nz_flags(result);
-    a_ = result;
+    exec_ctx_.result_u16 = core_ctx_.a + operand + (core_ctx_.flags & Flag::CARRY);
+    set_flag(Flag::CARRY, exec_ctx_.result_u16 > 0xFF ? 1 : 0);
+    set_flag(Flag::OVERFLOW_,
+             ((core_ctx_.a ^ exec_ctx_.result_u16) & (operand ^ exec_ctx_.result_u16) & 0x80) >> 7
+               ? 1
+               : 0);
+    exec_ctx_.result_u16 &= 0xFF;
+    set_nz_flags(exec_ctx_.result_u16);
+    core_ctx_.a = exec_ctx_.result_u16;
 }
 
 void Cpu::adc()
 {
-    adc_(get_operand());
+    adc_(read_operand());
 }
 
 void Cpu::sbc()
 {
-    adc_(get_operand() ^ 0xFF);
+    adc_(read_operand() ^ 0xFF);
 }
 
 void Cpu::sta()
 {
-    store(a_);
+    store(core_ctx_.a);
 }
 
 void Cpu::stx()
 {
-    store(x_);
+    store(core_ctx_.x);
 }
 
 void Cpu::sty()
 {
-    store(y_);
+    store(core_ctx_.y);
 }
 
 void Cpu::inx()
 {
-    x_ = (x_ + 1) & 0xFF;
-    set_nz_flags(x_);
+    core_ctx_.x = (core_ctx_.x + 1) & 0xFF;
+    set_nz_flags(core_ctx_.x);
 }
 
 void Cpu::dex()
 {
-    x_ = (x_ - 1) & 0xFF;
-    set_nz_flags(x_);
+    core_ctx_.x = (core_ctx_.x - 1) & 0xFF;
+    set_nz_flags(core_ctx_.x);
 }
 
 void Cpu::iny()
 {
-    y_ = (y_ + 1) & 0xFF;
-    set_nz_flags(y_);
+    core_ctx_.y = (core_ctx_.y + 1) & 0xFF;
+    set_nz_flags(core_ctx_.y);
 }
 
 void Cpu::dey()
 {
-    y_ = (y_ - 1) & 0xFF;
-    set_nz_flags(y_);
+    core_ctx_.y = (core_ctx_.y - 1) & 0xFF;
+    set_nz_flags(core_ctx_.y);
 }
 
 void Cpu::inc()
 {
-    std::uint8_t result = (get_operand() + 1) & 0xFF;
-    set_nz_flags(result);
-    store(result);
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 3:
+            exec_ctx_.operand = read_operand();
+            break;
+        case 2:
+            exec_ctx_.result_u8 = (exec_ctx_.operand + 1) & 0xFF;
+            store(exec_ctx_.operand);
+            break;
+        case 1:
+            set_nz_flags(exec_ctx_.result_u8);
+            store(exec_ctx_.result_u8);
+            break;
+        default:
+            std::unreachable();
+    }
 }
 
 void Cpu::dec()
 {
-    std::uint8_t result = (get_operand() - 1) & 0xFF;
-    set_nz_flags(result);
-    store(result);
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 3:
+            exec_ctx_.operand = read_operand();
+            break;
+        case 2:
+            exec_ctx_.result_u8 = (exec_ctx_.operand - 1) & 0xFF;
+            store(exec_ctx_.operand);
+            break;
+        case 1:
+            set_nz_flags(exec_ctx_.result_u8);
+            store(exec_ctx_.result_u8);
+            break;
+        default:
+            std::unreachable();
+    }
 }
 
 void Cpu::txa()
 {
-    a_ = x_;
-    set_nz_flags(a_);
+    core_ctx_.a = core_ctx_.x;
+    set_nz_flags(core_ctx_.a);
 }
 
 void Cpu::tya()
 {
-    a_ = y_;
-    set_nz_flags(a_);
+    core_ctx_.a = core_ctx_.y;
+    set_nz_flags(core_ctx_.a);
 }
 
 void Cpu::txs()
 {
-    sp_ = x_;
+    core_ctx_.sp = core_ctx_.x;
 }
 
 void Cpu::tay()
 {
-    y_ = a_;
-    set_nz_flags(y_);
+    core_ctx_.y = core_ctx_.a;
+    set_nz_flags(core_ctx_.y);
 }
 
 void Cpu::tax()
 {
-    x_ = a_;
-    set_nz_flags(x_);
+    core_ctx_.x = core_ctx_.a;
+    set_nz_flags(core_ctx_.x);
 }
 
 void Cpu::tsx()
 {
-    x_ = sp_;
-    set_nz_flags(x_);
+    core_ctx_.x = core_ctx_.sp;
+    set_nz_flags(core_ctx_.x);
 }
 
 void Cpu::lda()
 {
-    a_ = get_operand();
-    set_nz_flags(a_);
+    core_ctx_.a = read_operand();
+    set_nz_flags(core_ctx_.a);
 }
 
 void Cpu::ldx()
 {
-    x_ = get_operand();
-    set_nz_flags(x_);
+    core_ctx_.x = read_operand();
+    set_nz_flags(core_ctx_.x);
 }
 
 void Cpu::ldy()
 {
-    y_ = get_operand();
-    set_nz_flags(y_);
+    core_ctx_.y = read_operand();
+    set_nz_flags(core_ctx_.y);
 }
 
 void Cpu::cpx()
 {
-    std::uint8_t operand = get_operand();
-    std::uint8_t result = x_ - operand;
-    set_flag(Flag::CARRY, x_ >= operand ? 1 : 0);
-    set_nz_flags(result);
+    exec_ctx_.operand = read_operand();
+    exec_ctx_.result_u8 = core_ctx_.x - exec_ctx_.operand;
+    set_flag(Flag::CARRY, core_ctx_.x >= exec_ctx_.operand ? 1 : 0);
+    set_nz_flags(exec_ctx_.result_u8);
 }
 
 void Cpu::cpy()
 {
-    std::uint8_t operand = get_operand();
-    std::uint8_t result = y_ - operand;
-    set_flag(Flag::CARRY, y_ >= operand ? 1 : 0);
-    set_nz_flags(result);
+    exec_ctx_.operand = read_operand();
+    exec_ctx_.result_u8 = core_ctx_.y - exec_ctx_.operand;
+    set_flag(Flag::CARRY, core_ctx_.y >= exec_ctx_.operand ? 1 : 0);
+    set_nz_flags(exec_ctx_.result_u8);
 }
 
 void Cpu::cmp()
 {
-    std::uint8_t operand = get_operand();
-    std::uint8_t result = a_ - operand;
-    set_flag(Flag::CARRY, a_ >= operand ? 1 : 0);
-    set_nz_flags(result);
+    exec_ctx_.operand = read_operand();
+    exec_ctx_.result_u8 = core_ctx_.a - exec_ctx_.operand;
+    set_flag(Flag::CARRY, core_ctx_.a >= exec_ctx_.operand ? 1 : 0);
+    set_nz_flags(exec_ctx_.result_u8);
 }
 
 void Cpu::branch(bool condition)
 {
-    if (!condition)
+    switch (exec_ctx_.total_cycles_left)
     {
-        return;
+        case 0:
+            if (condition)
+            {
+                ++exec_ctx_.total_cycles_left;
+
+                std::uint8_t operand = read_operand();
+                exec_ctx_.result_u16 = core_ctx_.pc + static_cast<int8_t>(operand);
+
+                if (is_page_crossed(core_ctx_.pc, exec_ctx_.result_u16))
+                {
+                    ++exec_ctx_.total_cycles_left;
+                }
+            }
+            break;
+        case 1:
+        case 2:
+            core_ctx_.pc = exec_ctx_.result_u16;
+            break;
+        default:
+            std::unreachable();
     }
-    ++curr_cycle_;
-    std::uint8_t operand = get_operand();
-    std::int8_t offset = (operand & 0x80) == 0x80 ? -(0x100 - operand) : operand;
-    std::uint16_t addr = pc_ + offset;
-    page_crossed_ = is_page_crossed(pc_, addr);
-    pc_ = addr;
 }
 
 void Cpu::bpl()
 {
-    branch((p_ & Flag::NEGATIVE) == 0);
+    branch((core_ctx_.flags & Flag::NEGATIVE) == 0);
 }
 
 void Cpu::bmi()
 {
-    branch((p_ & Flag::NEGATIVE) != 0);
+    branch((core_ctx_.flags & Flag::NEGATIVE) != 0);
 }
 
 void Cpu::bvc()
 {
-    branch((p_ & Flag::OVERFLOW_) == 0);
+    branch((core_ctx_.flags & Flag::OVERFLOW_) == 0);
 }
 
 void Cpu::bvs()
 {
-    branch((p_ & Flag::OVERFLOW_) != 0);
+    branch((core_ctx_.flags & Flag::OVERFLOW_) != 0);
 }
 
 void Cpu::bcc()
 {
-    branch((p_ & Flag::CARRY) == 0);
+    branch((core_ctx_.flags & Flag::CARRY) == 0);
 }
 
 void Cpu::bcs()
 {
-    branch((p_ & Flag::CARRY) != 0);
+    branch((core_ctx_.flags & Flag::CARRY) != 0);
 }
 
 void Cpu::bne()
 {
-    branch((p_ & Flag::ZERO) == 0);
+    branch((core_ctx_.flags & Flag::ZERO) == 0);
 }
 
 void Cpu::beq()
 {
-    branch((p_ & Flag::ZERO) != 0);
+    branch((core_ctx_.flags & Flag::ZERO) != 0);
 }
 
 void Cpu::jsr()
 {
-    std::uint16_t return_addr = pc_ - 1;
-    push_stack(return_addr >> 8);
-    push_stack(return_addr & 0xFF);
-    pc_ = operand_addr_;
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 3:
+            break;
+        case 2:
+            push_stack((core_ctx_.pc - 1) >> 8);
+            break;
+        case 1:
+            push_stack((core_ctx_.pc - 1) & 0xFF);
+            core_ctx_.pc = exec_ctx_.operand_address;
+            break;
+        default:
+            std::unreachable();
+    }
 }
 
 void Cpu::nop()
@@ -640,39 +960,105 @@ void Cpu::kil()
 
 void Cpu::slo()
 {
-    asl();
-    ora();
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 3:
+            exec_ctx_.operand = read_operand();
+            break;
+        case 2:
+            store(exec_ctx_.operand);
+            break;
+        case 1:
+            exec_ctx_.result_u8 = (exec_ctx_.operand << 1) & 0xFF;
+            set_flag(Flag::CARRY, exec_ctx_.operand >> 7);
+            core_ctx_.a |= exec_ctx_.result_u8;
+            set_nz_flags(core_ctx_.a);
+            store(exec_ctx_.result_u8);
+            break;
+        default:
+            std::unreachable();
+    }
 }
 
 void Cpu::anc()
 {
-    a_ &= get_operand();
-    set_nz_flags(a_);
-    set_flag(Flag::CARRY, a_ >> 7);
+    core_ctx_.a &= read_operand();
+    set_nz_flags(core_ctx_.a);
+    set_flag(Flag::CARRY, core_ctx_.a >> 7);
 }
 
 void Cpu::rla()
 {
-    rol();
-    and_();
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 3:
+            exec_ctx_.operand = read_operand();
+            break;
+        case 2:
+            store(exec_ctx_.operand);
+            break;
+        case 1:
+            exec_ctx_.result_u8 = (exec_ctx_.operand << 1 | (core_ctx_.flags & Flag::CARRY)) & 0xFF;
+            core_ctx_.a &= exec_ctx_.result_u8;
+            set_flag(Flag::CARRY, exec_ctx_.operand >> 7);
+            set_nz_flags(core_ctx_.a);
+            store(exec_ctx_.result_u8);
+            break;
+        default:
+            std::unreachable();
+    }
 }
 
 void Cpu::sre()
 {
-    lsr();
-    eor();
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 3:
+            exec_ctx_.operand = read_operand();
+            break;
+        case 2:
+            store(exec_ctx_.operand);
+            break;
+        case 1:
+            exec_ctx_.result_u8 = exec_ctx_.operand >> 1;
+            core_ctx_.a ^= exec_ctx_.result_u8;
+            set_flag(Flag::CARRY, exec_ctx_.operand & 1);
+            set_nz_flags(core_ctx_.a);
+            store(exec_ctx_.result_u8);
+            break;
+        default:
+            std::unreachable();
+    }
 }
 
 void Cpu::alr()
 {
-    and_();
-    lsr();
+    exec_ctx_.result_u8 = core_ctx_.a & read_operand();
+    core_ctx_.a = exec_ctx_.result_u8 >> 1;
+    set_flag(Flag::CARRY, exec_ctx_.result_u8 & 1);
+    set_nz_flags(core_ctx_.a);
 }
 
 void Cpu::rra()
 {
-    ror();
-    adc();
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 3:
+            exec_ctx_.operand = read_operand();
+            break;
+        case 2:
+            store(exec_ctx_.operand);
+            break;
+        case 1:
+            exec_ctx_.result_u8 =
+              (exec_ctx_.operand >> 1 | (core_ctx_.flags & Flag::CARRY) << 7) & 0xFF;
+            set_flag(Flag::CARRY, exec_ctx_.operand & 1);
+            adc_(exec_ctx_.result_u8);
+            store(exec_ctx_.result_u8);
+            break;
+        default:
+            std::unreachable();
+    }
 }
 
 void Cpu::arr()
@@ -681,86 +1067,117 @@ void Cpu::arr()
     //
     // Similar to AND #i then ROR A, except sets the flags differently. N and Z are normal, but C is
     // bit 6 and V is bit 6 xor bit 5
-    std::uint8_t tmp = a_ & get_operand();
-    a_ = (tmp >> 1 | (tmp & Flag::CARRY) << 7) & 0xFF;
-    set_flag(Flag::CARRY, (a_ >> 6) & 1);
-    set_flag(Flag::OVERFLOW_, ((a_ >> 6) & 1) ^ ((a_ >> 5) & 1));
-    set_nz_flags(a_);
+    exec_ctx_.result_u8 = core_ctx_.a & read_operand();
+    core_ctx_.a = (exec_ctx_.result_u8 >> 1 | (core_ctx_.flags & Flag::CARRY) << 7) & 0xFF;
+    set_flag(Flag::CARRY, (core_ctx_.a >> 6) & 1);
+    set_flag(Flag::OVERFLOW_, ((core_ctx_.a >> 6) & 1) ^ ((core_ctx_.a >> 5) & 1));
+    set_nz_flags(core_ctx_.a);
 }
 
 void Cpu::sax()
 {
-    store(a_ & x_);
+    store(core_ctx_.a & core_ctx_.x);
 }
 
 void Cpu::ane()
 {
-    a_ = ((a_ | 0xEE) & x_ & get_operand());
-    set_nz_flags(a_);
+    core_ctx_.a = ((core_ctx_.a | 0xEE) & core_ctx_.x & read_operand());
+    set_nz_flags(core_ctx_.a);
 }
 
 void Cpu::sha()
 {
-    store(a_ & x_ & ((operand_addr_ >> 8) + 1));
+    store(core_ctx_.a & core_ctx_.x & ((exec_ctx_.operand_address >> 8) + 1));
 }
 
 void Cpu::tas()
 {
-    sp_ = a_ & x_;
-    store(sp_ & ((operand_addr_ >> 8) + 1));
+    core_ctx_.sp = core_ctx_.a & core_ctx_.x;
+    store(core_ctx_.sp & ((exec_ctx_.operand_address >> 8) + 1));
 }
 
 void Cpu::shy()
 {
-    store(y_ & ((operand_addr_ >> 8) + 1));
+    store(core_ctx_.y & ((exec_ctx_.operand_address >> 8) + 1));
 }
 
 void Cpu::shx()
 {
-    store(x_ & ((operand_addr_ >> 8) + 1));
+    store(core_ctx_.x & ((exec_ctx_.operand_address >> 8) + 1));
 }
 
 void Cpu::lax()
 {
-    a_ = get_operand();
-    x_ = a_;
-    set_nz_flags(a_);
+    core_ctx_.a = read_operand();
+    core_ctx_.x = core_ctx_.a;
+    set_nz_flags(core_ctx_.a);
 }
 
 void Cpu::lxa()
 {
-    a_ = (a_ | 0xEE) & get_operand();
-    x_ = a_;
-    set_nz_flags(a_);
+    core_ctx_.a = (core_ctx_.a | 0xEE) & read_operand();
+    core_ctx_.x = core_ctx_.a;
+    set_nz_flags(core_ctx_.a);
 }
 
 void Cpu::las()
 {
-    a_ = sp_ & get_operand();
-    x_ = a_;
-    sp_ = a_;
-    set_nz_flags(a_);
+    core_ctx_.a = core_ctx_.sp & read_operand();
+    core_ctx_.x = core_ctx_.a;
+    core_ctx_.sp = core_ctx_.a;
+    set_nz_flags(core_ctx_.a);
 }
 
 void Cpu::dcp()
 {
-    dec();
-    cmp();
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 3:
+            exec_ctx_.operand = read_operand();
+            break;
+        case 2:
+            store(exec_ctx_.operand);
+            break;
+        case 1: {
+            exec_ctx_.result_u8 = (exec_ctx_.operand - 1) & 0xFF;
+            std::uint8_t tmp = core_ctx_.a - exec_ctx_.result_u8;
+            set_flag(Flag::CARRY, core_ctx_.a >= exec_ctx_.result_u8 ? 1 : 0);
+            set_nz_flags(tmp);
+            store(exec_ctx_.result_u8);
+            break;
+        }
+        default:
+            std::unreachable();
+    }
 }
 
 void Cpu::sbx()
 {
-    std::uint8_t operand = get_operand();
-    std::uint8_t x_and_a = x_ & a_;
-    x_ = x_and_a - operand;
-    set_flag(Flag::CARRY, x_and_a >= operand ? 1 : 0);
-    set_nz_flags(x_);
+    exec_ctx_.operand = read_operand();
+    exec_ctx_.result_u8 = core_ctx_.x & core_ctx_.a;
+    core_ctx_.x = exec_ctx_.result_u8 - exec_ctx_.operand;
+    set_flag(Flag::CARRY, exec_ctx_.result_u8 >= exec_ctx_.operand ? 1 : 0);
+    set_nz_flags(core_ctx_.x);
 }
 
 void Cpu::isb()
 {
-    inc();
-    sbc();
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 3:
+            exec_ctx_.operand = read_operand();
+            break;
+        case 2:
+            store(exec_ctx_.operand);
+            break;
+        case 1:
+            exec_ctx_.result_u8 = (exec_ctx_.operand + 1) & 0xFF;
+            adc_(exec_ctx_.result_u8 ^ 0xFF);
+            store(exec_ctx_.result_u8);
+            break;
+        default:
+            std::unreachable();
+    }
 }
 
 } // namespace mayones::core

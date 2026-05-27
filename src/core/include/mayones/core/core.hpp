@@ -22,7 +22,7 @@ public:
     void reset();
     void reset(std::uint16_t pc);
     void tick_frame();
-    TraceEntry trace_tick_frame();
+    Cpu::TraceEntry trace_tick_frame();
 
 private:
     rom::Mapper mapper_;
