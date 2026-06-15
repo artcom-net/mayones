@@ -35,6 +35,8 @@ public:
     void tick();
     TraceEntry trace_tick();
 
+    void trigger_nmi();
+
 private:
     enum Flag : std::uint8_t {
         CARRY = 1 << 0,
@@ -91,20 +93,31 @@ private:
         std::uint8_t address_mode_cycles_left{};
     };
 
+    struct DmaContext {
+        std::uint16_t address{};
+        std::uint16_t cycles_left{};
+        std::uint8_t halt_cycles{};
+        std::uint8_t data{};
+    };
+
     static constexpr std::uint16_t STACK_BASE_ADDRESS{ 0x0100 };
     static constexpr std::uint16_t NMI_VECTOR_ADDRESS{ 0xFFFA };
     static constexpr std::uint16_t RESET_VECTOR_ADDRESS{ 0xFFFC };
     static constexpr std::uint16_t IRQ_VECTOR_ADDRESS{ 0xFFFE };
     static constexpr std::size_t INSTRUCTIONS_TABLE_SIZE{ 256 };
+    static constexpr std::size_t DMA_CYCLES{ 512 };
     static constexpr std::array<std::uint8_t, 13> ADDRESS_MODE_CYCLE_TABLE{ 0, 0, 1, 2, 1, 3, 3,
                                                                             2, 2, 4, 4, 5, 1 };
 
     static const std::array<const Instruction, 256> INSTRUCTION_TABLE;
+    static const Instruction NMI_INSTRUCTION;
 
     CoreContext core_ctx_{};
     ExecutionContext exec_ctx_{};
+    DmaContext dma_ctx_{};
     CpuBus& bus_;
     std::size_t total_cycles_{};
+    bool nmi_pending_{};
 
     void reset_registers(std::uint16_t pc);
     void push_stack(std::uint8_t data);
@@ -115,6 +128,9 @@ private:
     std::uint16_t read_wrapped_page(std::uint16_t address, std::uint16_t pointer);
     void resolve_indexed_zeropage_address(std::uint8_t index);
     void resolve_indexed_absolute_address(std::uint8_t index);
+
+    void tick_dma();
+    void tick_nmi();
 
     std::uint8_t read_operand();
     void store(std::uint8_t data);

@@ -98,7 +98,9 @@ std::vector<std::uint8_t> make_rom(const LoadRomParams& rom_params)
 TEST_P(LoadRomFailedInputParams, LoadRomFailed)
 {
     const auto& [rom_params, expected_error] = GetParam();
-    mayones::core::NesCore nes_core{};
+    std::array<mayones::core::PixelColor, mayones::core::FRAME_BUFFER_SIZE> buffer{};
+
+    mayones::core::NesCore nes_core{ buffer };
     auto load_result = nes_core.load_rom(make_rom(rom_params));
     ASSERT_EQ(load_result.has_value(), false);
     ASSERT_EQ(load_result.error(), expected_error);
@@ -107,7 +109,9 @@ TEST_P(LoadRomFailedInputParams, LoadRomFailed)
 TEST_P(LoadRomInputParams, LoadRom)
 {
     const auto& [rom_params, expected_rom_info] = GetParam();
-    mayones::core::NesCore nes_core{};
+    std::array<mayones::core::PixelColor, mayones::core::FRAME_BUFFER_SIZE> buffer{};
+
+    mayones::core::NesCore nes_core{ buffer };
     auto load_result = nes_core.load_rom(make_rom(rom_params));
     const auto& rom_info = nes_core.rom_info();
     ASSERT_EQ(load_result.has_value(), true) << load_result.error();

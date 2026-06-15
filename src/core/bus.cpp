@@ -6,9 +6,10 @@
 
 namespace mayones::core {
 
-CpuBus::CpuBus(rom::Mapper& mapper) :
+CpuBus::CpuBus(rom::Mapper& mapper, Ppu& ppu) :
     ram_{},
-    mapper_{ mapper }
+    mapper_{ mapper },
+    ppu_{ ppu }
 {
 }
 
@@ -35,19 +36,22 @@ std::uint8_t CpuBus::read(std::uint16_t address) const
     {
         return ram_[address & RAM_MASK];
     }
-    if (address < 0x4000)
+    else if (address < 0x4000)
     {
         // PPU
-        return 0x80;
+        return ppu_.read(address & 0x2007);
     }
-    if (address < 0x4020)
+    else if (address < 0x4020)
     {
         // APU and IO
         return 0;
     }
-    // Mapper
-    return std::visit(
-      [address](const auto& mapper) -> std::uint8_t { return mapper.read_prg(address); }, mapper_);
+    else
+    {
+        // Mapper
+        return std::visit(
+          [address](auto& mapper) -> std::uint8_t { return mapper.read_prg(address); }, mapper_);
+    }
 }
 
 void CpuBus::write(std::uint16_t address, std::uint8_t data)
@@ -56,16 +60,20 @@ void CpuBus::write(std::uint16_t address, std::uint8_t data)
     {
         ram_[address & RAM_MASK] = data;
     }
-    if (address < 0x4000)
+    else if (address < 0x4000)
     {
-        // PPU
+        ppu_.write(address & 0x2007, data);
     }
-    if (address < 0x4020)
+    else if (address < 0x4020)
     {
         // APU and IO
     }
-    // Mapper
-    std::visit([address, data](auto& mapper) { return mapper.write_prg(address, data); }, mapper_);
+    else
+    {
+        // Mapper
+        std::visit([address, data](auto& mapper) { return mapper.write_prg(address, data); },
+                   mapper_);
+    }
 }
 
 } // namespace mayones::core

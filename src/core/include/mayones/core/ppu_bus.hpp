@@ -5,23 +5,19 @@
 
 #include "mayones/core/const.hpp"
 #include "mayones/core/mapper.hpp"
-#include "mayones/core/ppu.hpp"
 
 namespace mayones::core {
 
-class CpuBus {
+class PpuBus {
 public:
-    explicit CpuBus(rom::Mapper& mapper, Ppu& ppu);
+    explicit PpuBus(rom::Mapper& mapper);
 
     [[nodiscard]] std::uint8_t read(std::uint16_t address) const;
     void write(std::uint16_t address, std::uint8_t data);
 
 private:
-    static constexpr std::uint16_t RAM_MASK{ 0x07FF };
-
-    std::array<std::uint8_t, 2 * KB> ram_;
     rom::Mapper& mapper_;
-    Ppu& ppu_;
+    std::array<std::uint8_t, 2 * KB> vram_{};
 };
 
 } // namespace mayones::core

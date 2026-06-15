@@ -1,6 +1,6 @@
 {
   "name": "mayones",
-  "dependencies": [],
+  "dependencies": ["sfml"],
   "features": {
     "tests": {
       "description": "Build tests",

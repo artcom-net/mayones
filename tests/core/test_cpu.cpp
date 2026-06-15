@@ -18,6 +18,7 @@
 
 #include "mayones/core/core.hpp"
 #include "mayones/core/cpu.hpp"
+#include "mayones/core/ppu.hpp"
 #include "mayones/io/file.hpp"
 
 using namespace std::string_view_literals;
@@ -175,8 +176,10 @@ TraceBuffer parse_nestest_trace(std::vector<std::string> trace_lines)
 TraceBuffer run_nestest(std::vector<std::uint8_t> rom_data, std::size_t nestest_trace_size)
 {
     constexpr std::uint16_t NESTEST_PC{ 0xC000 };
+    std::array<mayones::core::PixelColor, mayones::core::FRAME_BUFFER_SIZE> buffer{};
 
-    mayones::core::NesCore nes_core{};
+    mayones::core::NesCore nes_core{ buffer };
+
     auto load_rom_result = nes_core.load_rom(std::move(rom_data));
     if (!load_rom_result)
     {

@@ -7,6 +7,8 @@ target_sources(
         "cpu.cpp"
         "core.cpp"
         "mapper.cpp"
+        "ppu.cpp"
+        "ppu_bus.cpp"
         "rom.cpp"
         "rom_loader.cpp"
 )

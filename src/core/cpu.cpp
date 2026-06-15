@@ -22,6 +22,12 @@ const std::array<const Cpu::Instruction, Cpu::INSTRUCTIONS_TABLE_SIZE> Cpu::INST
 #include "cpu_instructions.inc"
 };
 
+const Cpu::Instruction Cpu::NMI_INSTRUCTION{ .mnemonic = "NMI",
+                                             .addr_mode = Cpu::AddressMode::IMPLIED,
+                                             .cycles = 7,
+                                             .check_page_cross = false,
+                                             .func = &Cpu::tick_nmi };
+
 Cpu::Cpu(CpuBus& bus) :
     bus_{ bus }
 {
@@ -137,15 +143,84 @@ void Cpu::resolve_indexed_absolute_address(std::uint8_t index)
     }
 }
 
+void Cpu::tick_dma()
+{
+    switch (dma_ctx_.cycles_left & 1)
+    {
+        case 0:
+            dma_ctx_.data = bus_.read(dma_ctx_.address++);
+            break;
+        case 1:
+            bus_.write(0x2004, dma_ctx_.data);
+            break;
+        default:
+            std::unreachable();
+    }
+}
+
+void Cpu::tick_nmi()
+{
+    switch (exec_ctx_.total_cycles_left)
+    {
+        case 6:
+            push_stack(core_ctx_.pc >> 8);
+            break;
+        case 5:
+            push_stack(core_ctx_.pc & 0xFF);
+            break;
+        case 4:
+            push_stack(core_ctx_.flags & ~Flag::BREAK);
+            break;
+        case 3:
+            core_ctx_.flags |= Flag::INTERRUPT;
+            exec_ctx_.result_u16 = bus_.read(NMI_VECTOR_ADDRESS);
+            break;
+        case 2:
+            exec_ctx_.result_u16 |= bus_.read(NMI_VECTOR_ADDRESS + 1) << 8;
+            break;
+        case 1:
+            core_ctx_.pc = exec_ctx_.result_u16;
+            break;
+        default:
+            std::unreachable();
+    }
+}
+
 void Cpu::tick()
 {
+    // if (dma_ctx_.cycles_left > 0)
+    // {
+    //     if (dma_ctx_.halt_cycles > 0)
+    //     {
+    //         --dma_ctx_.halt_cycles;
+    //         ++total_cycles_;
+    //         return;
+    //     }
+
+    //     tick_dma();
+
+    //     --dma_ctx_.cycles_left;
+    //     ++total_cycles_;
+
+    //     return;
+    // }
+
     if (exec_ctx_.total_cycles_left == 0)
     {
         exec_ctx_ = ExecutionContext{};
-        std::uint8_t opcode = bus_.read(core_ctx_.pc++);
-        exec_ctx_.instruction_ptr = &INSTRUCTION_TABLE[opcode];
 
-        exec_ctx_.total_cycles_left = exec_ctx_.instruction_ptr->cycles - 1; // minus fetch opcode
+        if (nmi_pending_)
+        {
+            nmi_pending_ = !nmi_pending_;
+            exec_ctx_.instruction_ptr = &NMI_INSTRUCTION;
+        }
+        else
+        {
+            std::uint8_t opcode = bus_.read(core_ctx_.pc++);
+            exec_ctx_.instruction_ptr = &INSTRUCTION_TABLE[opcode];
+        }
+        // minus 1 fetch opcode or dummy cycle for NMI
+        exec_ctx_.total_cycles_left = exec_ctx_.instruction_ptr->cycles - 1;
         exec_ctx_.address_mode_cycles_left =
           ADDRESS_MODE_CYCLE_TABLE[std::to_underlying(exec_ctx_.instruction_ptr->addr_mode)];
 
@@ -346,6 +421,11 @@ Cpu::TraceEntry Cpu::trace_tick()
              .cycles = trace_cycles };
 }
 
+void Cpu::trigger_nmi()
+{
+    nmi_pending_ = true;
+}
+
 std::uint8_t Cpu::read_operand()
 {
     if (exec_ctx_.instruction_ptr->addr_mode == AddressMode::ACCUMULATOR)
@@ -364,6 +444,16 @@ void Cpu::store(std::uint8_t data)
     else
     {
         bus_.write(exec_ctx_.operand_address, data);
+        // if (exec_ctx_.operand_address == 0x4014)
+        // {
+        //     dma_ctx_ = { .address = static_cast<std::uint16_t>(data << 8),
+        //                  .cycles_left = DMA_CYCLES,
+        //                  .halt_cycles = static_cast<std::uint8_t>(1 + (total_cycles_ & 1)) };
+        // }
+        // else
+        // {
+        //     bus_.write(exec_ctx_.operand_address, data);
+        // }
     }
 }
 

@@ -1,3 +1,4 @@
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <string>
@@ -10,9 +11,11 @@
 
 namespace mayones::core {
 
-NesCore::NesCore() :
+NesCore::NesCore(std::span<PixelColor, FRAME_BUFFER_SIZE> frame_buffer) :
     mapper_{ rom::DummyMapper{} },
-    bus_{ mapper_ },
+    ppu_bus_{ mapper_ },
+    ppu_{ ppu_bus_, frame_buffer },
+    bus_{ mapper_, ppu_ },
     cpu_{ bus_ },
     rom_data_{}
 {
@@ -47,16 +50,32 @@ const rom::RomInfo& NesCore::rom_info() const noexcept
 void NesCore::reset()
 {
     cpu_.reset();
+    ppu_.reset();
 }
 
 void NesCore::reset(std::uint16_t pc)
 {
     cpu_.reset(pc);
+    ppu_.reset();
 }
 
 void NesCore::tick_frame()
 {
-    cpu_.tick();
+    std::size_t cpu_tick{};
+    for (std::size_t ppu_cycle = 0; ppu_cycle < PPU_CYCLES_PER_FRAME; ++ppu_cycle)
+    {
+        ppu_.tick();
+
+        if (cpu_tick++ % 3 == 0)
+        {
+            cpu_.tick();
+        }
+
+        if (ppu_.is_nmi_pending())
+        {
+            cpu_.trigger_nmi();
+        }
+    }
 }
 
 Cpu::TraceEntry NesCore::trace_tick_frame()

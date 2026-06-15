@@ -6,7 +6,7 @@ SortIncludes: true
 IncludeIsMainRegex: "$^"
 IncludeBlocks: Regroup
 IncludeCategories:
-    - Regex: "^<(gtest).*"
+    - Regex: "^<(SFML|gtest).*"
       Priority: 2
     - Regex: "^<.*"
       Priority: 1
