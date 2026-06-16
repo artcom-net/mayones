@@ -53,22 +53,38 @@ struct std::formatter<mayones::core::rom::RomInfo> {
 
     auto format(const mayones::core::rom::RomInfo& rom_info, auto& ctx) const
     {
-        return std::format_to(
-          ctx.out(),
-          "RomInfo: format={}, console={}, tv_system={}, mapper={}, mirroring={}, "
-          "prg_banks={}, chr_banks={}, prg_ram_banks={}, has_battery={}, has_trainer={}, "
-          "has_alternate_nt_layout={}",
-          rom_info.rom_format,
-          rom_info.console_type,
-          rom_info.tv_system,
-          rom_info.mapper_id,
-          rom_info.mirroring,
-          rom_info.prg_rom_banks,
-          rom_info.chr_rom_banks,
-          rom_info.prg_ram_banks,
-          rom_info.has_battery,
-          rom_info.has_trainer,
-          rom_info.has_alternate_nt_layout);
+        return std::format_to(ctx.out(),
+                              "RomInfo: \n"
+                              "    format={}\n"
+                              "    console={}\n"
+                              "    tv_system={}\n"
+                              "    mapper={}\n"
+                              "    submapper={}\n"
+                              "    mirroring={}\n\n"
+                              "    prg_size={}\n"
+                              "    chr_size={}\n"
+                              "    prg_ram_size={}\n"
+                              "    prg_nvram_size={}\n"
+                              "    chr_ram_size={}\n"
+                              "    chr_nvram_size={}\n\n"
+                              "    has_battery={}\n"
+                              "    has_trainer={}\n"
+                              "    has_alternate_nt_layout={}",
+                              rom_info.rom_format,
+                              rom_info.console_type,
+                              rom_info.tv_system,
+                              rom_info.mapper_id,
+                              rom_info.submapper_id,
+                              rom_info.mirroring,
+                              rom_info.prg_rom_size,
+                              rom_info.chr_rom_size,
+                              rom_info.prg_ram_size,
+                              rom_info.prg_nvram_size,
+                              rom_info.chr_ram_size,
+                              rom_info.chr_nvram_size,
+                              rom_info.has_battery,
+                              rom_info.has_trainer,
+                              rom_info.has_alternate_nt_layout);
     }
 };
 

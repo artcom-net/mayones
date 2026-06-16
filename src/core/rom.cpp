@@ -50,9 +50,13 @@ std::string_view to_string(TVSystem tv_system)
     switch (tv_system)
     {
         case TVSystem::NTSC:
-            return "NTSC";
+            return "RP2C02 (NTSC NES)";
         case TVSystem::PAL:
-            return "PAL";
+            return "RP2C07 (PAL NES)";
+        case TVSystem::MULTIPLE_REGION:
+            return "Multiple-region";
+        case TVSystem::DENDY:
+            return "UA6538 (Dendy)";
         default:
             std::unreachable();
     }

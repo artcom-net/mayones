@@ -49,19 +49,20 @@ std::uint16_t DummyMapper::mirror_nametable_address(std::uint16_t address)
 
 std::expected<NromMapper, std::string> NromMapper::create(const RomData& rom_data) noexcept
 {
-    if (rom_data.rom_info.prg_rom_banks != 1 && rom_data.rom_info.prg_rom_banks != 2)
+    if (rom_data.rom_info.prg_rom_size != 1 * PRG_BANK_SIZE &&
+        rom_data.rom_info.prg_rom_size != 2 * PRG_BANK_SIZE)
     {
         return std::unexpected{ "Invalid number of PRG banks" };
     }
-    if (rom_data.rom_info.chr_rom_banks != 1)
+    if (rom_data.rom_info.chr_rom_size != CHR_BANK_SIZE)
     {
         return std::unexpected{ "Invalid number of CHR banks" };
     }
-    if (rom_data.prg_rom.size() != (rom_data.rom_info.prg_rom_banks * PRG_BANK_SIZE))
+    if (rom_data.prg_rom.size() != rom_data.rom_info.prg_rom_size)
     {
         return std::unexpected{ "PRG ROM size mismatch" };
     }
-    if (rom_data.chr_rom.size() != (rom_data.rom_info.chr_rom_banks * CHR_BANK_SIZE))
+    if (rom_data.chr_rom.size() != rom_data.rom_info.chr_rom_size)
     {
         return std::unexpected{ "PRG ROM size mismatch" };
     }
@@ -71,7 +72,7 @@ std::expected<NromMapper, std::string> NromMapper::create(const RomData& rom_dat
 NromMapper::NromMapper(const RomData& rom_data) :
     prg_rom_{ rom_data.prg_rom },
     chr_rom_{ rom_data.chr_rom },
-    address_mask_{ rom_data.rom_info.prg_rom_banks == 1 ? MASK_16KB : MASK_32KB },
+    address_mask_{ rom_data.rom_info.prg_rom_size == (1 * PRG_BANK_SIZE) ? MASK_16KB : MASK_32KB },
     mirroring_{ rom_data.rom_info.mirroring }
 {
 }

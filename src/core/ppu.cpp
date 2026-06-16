@@ -50,7 +50,9 @@ std::uint8_t Ppu::read(std::uint16_t address)
             return value;
         }
         default:
-            std::unreachable();
+            // Ice Climbder trying read 0x2001. TODO: need return openbus?
+            return 0;
+            // std::unreachable();
     }
 }
 

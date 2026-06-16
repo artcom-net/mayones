@@ -1,6 +1,5 @@
 #pragma once
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
@@ -10,22 +9,19 @@
 
 namespace mayones::core::rom {
 
-inline constexpr std::size_t HEADER_ID_SIZE{ 4 };
-inline constexpr std::size_t PADDING_SIZE{ 5 };
-inline constexpr std::size_t TRAINER_SIZE{ 512 };
 inline constexpr std::size_t PRG_BANK_SIZE{ 16 * KB };
 inline constexpr std::size_t CHR_BANK_SIZE{ 8 * KB };
-inline constexpr std::array<std::uint8_t, HEADER_ID_SIZE> HEADER_ID{ 'N', 'E', 'S', 0x1A };
+inline constexpr std::size_t PRG_RAM_BANK_SIZE{ 8 * KB };
 
 enum class RomFormat : std::uint8_t {
     INES,
-    ARCHAIC_INES,
-    INES20
+    INES20,
+    ARCHAIC_INES
 };
 
 enum class Mirroring : std::uint8_t {
-    HORIZONTAL,
-    VERTICAL
+    VERTICAL,
+    HORIZONTAL
 };
 
 enum class ConsoleType : std::uint8_t {
@@ -36,14 +32,20 @@ enum class ConsoleType : std::uint8_t {
 
 enum class TVSystem : std::uint8_t {
     NTSC,
-    PAL
+    PAL,
+    DENDY,
+    MULTIPLE_REGION
 };
 
 struct RomInfo {
-    std::uint8_t prg_rom_banks;
-    std::uint8_t chr_rom_banks;
-    std::uint8_t prg_ram_banks;
-    std::uint8_t mapper_id;
+    std::size_t prg_rom_size;
+    std::size_t chr_rom_size;
+    std::size_t prg_ram_size;
+    std::size_t prg_nvram_size;
+    std::size_t chr_ram_size;
+    std::size_t chr_nvram_size;
+    std::uint16_t mapper_id;
+    std::uint8_t submapper_id;
     RomFormat rom_format;
     Mirroring mirroring;
     ConsoleType console_type;

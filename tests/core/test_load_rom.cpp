@@ -106,6 +106,7 @@ TEST_P(LoadRomFailedInputParams, LoadRomFailed)
     ASSERT_EQ(load_result.error(), expected_error);
 }
 
+// TODO: add tests for iNES 2.0
 TEST_P(LoadRomInputParams, LoadRom)
 {
     const auto& [rom_params, expected_rom_info] = GetParam();
@@ -115,9 +116,9 @@ TEST_P(LoadRomInputParams, LoadRom)
     auto load_result = nes_core.load_rom(make_rom(rom_params));
     const auto& rom_info = nes_core.rom_info();
     ASSERT_EQ(load_result.has_value(), true) << load_result.error();
-    ASSERT_EQ(rom_info.prg_rom_banks, expected_rom_info.prg_rom_banks);
-    ASSERT_EQ(rom_info.chr_rom_banks, expected_rom_info.chr_rom_banks);
-    ASSERT_EQ(rom_info.prg_ram_banks, expected_rom_info.prg_ram_banks);
+    ASSERT_EQ(rom_info.prg_rom_size, expected_rom_info.prg_rom_size);
+    ASSERT_EQ(rom_info.chr_rom_size, expected_rom_info.chr_rom_size);
+    ASSERT_EQ(rom_info.prg_ram_size, expected_rom_info.prg_ram_size);
     ASSERT_EQ(rom_info.mapper_id, expected_rom_info.mapper_id);
 
     ASSERT_EQ(rom_info.mirroring, expected_rom_info.mirroring);
@@ -140,11 +141,6 @@ INSTANTIATE_TEST_SUITE_P(
                                          .chr_banks = 1,
                                          .has_trainer = false },
                          .expected_error = "Archaic iNES format is not supported"sv },
-    LoadRomFailedParams{ .rom_params = { .header = RomHeader{ .flags7 = 0x08 },
-                                         .prg_banks = 1,
-                                         .chr_banks = 1,
-                                         .has_trainer = false },
-                         .expected_error = "NES 2.0 format is not supported"sv },
     LoadRomFailedParams{
       .rom_params = { .header = RomHeader{ .header_id = { 'N', 'E', 'T', 0x1A } },
                       .prg_banks = 1,
@@ -166,11 +162,6 @@ INSTANTIATE_TEST_SUITE_P(
     LoadRomFailedParams{
       .rom_params = { .header = RomHeader{}, .prg_banks = 0, .chr_banks = 0, .has_trainer = false },
       .expected_error = "ROM size mismatch"sv },
-    LoadRomFailedParams{ .rom_params = { .header = RomHeader{ .padding = { 0x01 } },
-                                         .prg_banks = 1,
-                                         .chr_banks = 1,
-                                         .has_trainer = false },
-                         .expected_error = "Header padding contains non-zero bytes"sv },
     LoadRomFailedParams{ .rom_params = { .header = RomHeader{ .flags6 = 0x10 },
                                          .prg_banks = 1,
                                          .chr_banks = 1,
@@ -184,9 +175,9 @@ INSTANTIATE_TEST_SUITE_P(
     LoadRomSuccessParams{
       .rom_params = { .header = RomHeader{}, .prg_banks = 1, .chr_banks = 1, .has_trainer = false },
       .expected_rom_info =
-        mayones::core::rom::RomInfo{ .prg_rom_banks = 1,
-                                     .chr_rom_banks = 1,
-                                     .prg_ram_banks = 0,
+        mayones::core::rom::RomInfo{ .prg_rom_size = 16384,
+                                     .chr_rom_size = 8192,
+                                     .prg_ram_size = 0,
                                      .mapper_id = 0,
                                      .rom_format = mayones::core::rom::RomFormat::INES,
                                      .mirroring = mayones::core::rom::Mirroring::HORIZONTAL,
@@ -200,9 +191,9 @@ INSTANTIATE_TEST_SUITE_P(
                                           .chr_banks = 1,
                                           .has_trainer = true },
                           .expected_rom_info = mayones::core::rom::RomInfo{
-                            .prg_rom_banks = 1,
-                            .chr_rom_banks = 1,
-                            .prg_ram_banks = 0,
+                            .prg_rom_size = 16384,
+                            .chr_rom_size = 8192,
+                            .prg_ram_size = 0,
                             .mapper_id = 0,
                             .rom_format = mayones::core::rom::RomFormat::INES,
                             .mirroring = mayones::core::rom::Mirroring::HORIZONTAL,
