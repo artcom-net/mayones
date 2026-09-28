@@ -24,7 +24,7 @@ std::string_view to_string(Mirroring mirroring)
         case Mirroring::HORIZONTAL:
             return "horizontal";
         case Mirroring::VERTICAL:
-            return "verical";
+            return "vertical";
         default:
             std::unreachable();
     }
