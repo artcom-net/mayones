@@ -74,7 +74,7 @@ jobs:
       - name: Setup CMake
         uses: lukka/get-cmake@latest
         with:
-          cmakeVersion: "^4.4.3"
+          cmakeVersion: "^4.4.2"
           ninjaVersion: "^1.13.2"
 
       - name: Build & Test
